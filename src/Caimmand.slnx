@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="../tests/Caimmand.Tests/Caimmand.Tests.csproj" />
+  <Project Path="Caimmand.Application/Caimmand.Application.csproj" />
+  <Project Path="Caimmand.Domain/Caimmand.Domain.csproj" />
+  <Project Path="Caimmand.Infrastructure/Caimmand.Infrastructure.csproj" />
+  <Project Path="Caimmand.Web/Caimmand.Web.csproj" />
+</Solution>

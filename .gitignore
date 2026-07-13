@@ -1,0 +1,20 @@
+# Environment files
+.env
+.env.*
+*.local.env
+
+# Local user-specific settings
+appsettings.*.local.json
+*.user
+
+# Build output
+bin/
+obj/
+
+# IDE
+.vs/
+.idea/
+*.suo
+
+# Logs
+*.log
