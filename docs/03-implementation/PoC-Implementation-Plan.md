@@ -1,4 +1,4 @@
-# Caimmand - PoC Implementation Plan
+﻿# Caimmand - PoC Implementation Plan
 
 | Campo    | Valor                |
 |----------|----------------------|
@@ -131,9 +131,9 @@ tests/
 | Proyecto | Responsabilidad |
 |----------|-----------------|
 | Caimmand.Web | Host del proceso unico. Contiene Blazor Server (pantallas), Minimal APIs (endpoints), configuracion de inyeccion de dependencias y pipeline de ASP.NET Core. Es el punto de entrada del proceso. |
-| Caimmand.Application | Casos de uso y servicios de aplicacion. Orquesta el dominio, expone los comandos y consultas que Blazor y las APIs consumen. No conoce infraestructura concreta. |
-| Caimmand.Domain | Entidades, Value Objects y reglas de negocio del dominio. No depende de EF Core ni de ninguna tecnologia. Define los contratos de persistencia (interfaces de repositorio) que Infrastructure implementa. |
-| Caimmand.Infrastructure | Implementacion de persistencia con EF Core, configuracion de PostgreSQL, migraciones y repositorios concretos. Depende del dominio, nunca al reves. |
+| Caimmand.Application | Casos de uso y servicios de aplicacion. Orquesta el dominio, expone los comandos y consultas que Blazor y las APIs consumen. Consume directamente CaimmandDbContext para persistencia. |
+| Caimmand.Domain | Entidades, Value Objects y reglas de negocio del dominio. No depende de EF Core ni de ninguna tecnologia. No define contratos de persistencia. |
+| Caimmand.Infrastructure | Implementacion de persistencia con EF Core: CaimmandDbContext, configuraciones de entidades, migraciones y cadena de conexion a PostgreSQL. Mapea las entidades del dominio, sin implementar interfaces de repositorio. |
 | Caimmand.Tests | Tests unitarios y de integracion. Cubre el dominio y los casos de uso de Application. |
 
 ### Reglas de dependencia
@@ -141,7 +141,7 @@ tests/
 - `Caimmand.Web` depende de `Caimmand.Application` y de `Caimmand.Domain`.
 - `Caimmand.Application` depende de `Caimmand.Domain`.
 - `Caimmand.Domain` no depende de nadie.
-- `Caimmand.Infrastructure` depende de `Caimmand.Domain` (inversion de dependencias).
+- `Caimmand.Infrastructure` depende de `Caimmand.Domain` (mapea sus entidades con EF Core).
 - `Caimmand.Web` referencia `Caimmand.Infrastructure` solo para registrar los servicios en el contenedor, no para consumirlos directamente.
 
 ## Organizacion interna
@@ -204,10 +204,23 @@ Caso concreto que Caimmand opera.
 | CaseDefinitionCode | string | Codigo de la Case Definition que tipifica el caso (ej. APPOINTMENT_REMINDER). |
 | Status | enum | Estado actual: Creado, EnCurso, Suspendido, Finalizado, Cancelado. |
 | Title | string | Titulo legible del caso (ej. "Recordatorio del turno de Juan Perez"). |
-| Context | string | Contexto JSON libre con la informacion relevante del caso. |
+| Context | jsonb | Contexto del caso almacenado como JSONB de PostgreSQL. Permite guardar informacion especifica de cada tipo de caso sin modificar el esquema por cada nuevo proceso. Brinda flexibilidad sin perder consistencia. |
 | SourceSystem | string | Sistema de origen que creo el caso (ej. HIS). |
 | CreatedAt | DateTime | Fecha de creacion. |
 | UpdatedAt | DateTime | Fecha de ultima modificacion. |
+
+Ejemplo de Context para el caso "Recordatorio de Turnos":
+
+```json
+{
+  "patientId": 12345,
+  "patientName": "Juan Perez",
+  "appointmentDate": "2026-07-18T10:30",
+  "doctor": "Dr. Lopez"
+}
+```
+
+Cada Case Definition define que informacion espera en Context. El esquema relacional no se modifica al incorporar un nuevo tipo de caso.
 
 #### CaseDefinition
 
@@ -228,12 +241,13 @@ Tipo de operacion que se gobierna.
 
 #### TimelineEvent
 
-Evento funcional visible del caso.
+Evento funcional visible del caso. Cada evento se ordena por Sequence dentro del Caso, lo que garantiza una reconstruccion consistente de la Timeline incluso cuando varios eventos comparten el mismo timestamp.
 
 | Atributo | Tipo | Descripcion |
 |----------|------|-------------|
 | Id | Guid | Identificador unico. |
 | CaseId | Guid | Caso al que pertenece. FK hacia Case. |
+| Sequence | long | Orden logico del evento dentro del Caso. Complementa OccurredAt y evita ambiguedades cuando varios eventos comparten el mismo timestamp. Garantiza una reconstruccion consistente de la Timeline. |
 | Type | string | Tipo de evento (Creacion, Aviso, Confirmacion, Cancelacion, etc.). |
 | Origin | string | Origen del evento (Sistema, Operador, Agente, Paciente). |
 | Content | string | Contenido descriptivo del evento. |
@@ -276,13 +290,13 @@ La Command API se materializa como Minimal APIs de ASP.NET Core. En el PoC no se
 
 ### Notas
 
-- No se diseñan DTOs complejos para el PoC: se usan records simples.
+- No se disenan DTOs complejos para el PoC: se usan records simples.
 - La validacion se realiza con FluentValidation.
 - Los endpoints son los mas ligeros posibles: un handler delega a Application y serializa el resultado.
 
 ## Pantallas del PoC
 
-El PoC incluye tres pantallas. No se diseñan pantallas administrativas (gestion de usuarios, configuracion avanzada de Case Definitions, etc.).
+El PoC incluye tres pantallas. No se disenan pantallas administrativas (gestion de usuarios, configuracion avanzada de Case Definitions, etc.).
 
 ### Dashboard
 
@@ -291,6 +305,7 @@ Pantalla inicial de la aplicacion.
 | Elemento | Descripcion |
 |----------|-------------|
 | Conteos por estado | Numero de casos en cada estado (Creado, En curso, Suspendido, Finalizado, Cancelado). |
+| Requieren intervencion | Cantidad de casos que necesitan una accion humana. Principal KPI operativo para operadores y supervisores. |
 | Conteo total | Numero total de casos. |
 | Acceso al listado | Boton o enlace al Listado de Casos. |
 
@@ -312,8 +327,8 @@ Pantalla principal del operador para gobernar un caso.
 | Elemento | Descripcion |
 |----------|-------------|
 | Encabezado | Titulo, Case Definition, estado actual, sistema origen. |
-| Contexto | Informacion contextual del caso (JSON de Context). |
-| Timeline | Cronologia de eventos en orden descendente. |
+| Contexto | Informacion contextual del caso, renderizada desde el JSONB de Context. |
+| Timeline | Cronologia de eventos ordenada por Sequence (orden logico) y OccurredAt, en orden descendente. |
 | Acciones | Cambiar estado (botones para transitar entre estados admisibles). |
 | Agregar evento | Formulario simple para anadir un evento a la timeline. |
 
@@ -370,7 +385,7 @@ El trabajo se organiza en cuatro fases. Cada fase entrega valor demostrable.
 - Exponer los endpoints de Timeline.
 - Implementar la pantalla de Detalle del Caso en Blazor.
 - Implementar la pantalla de Listado de Casos.
-- Implementar la pantalla de Dashboard con conteos basicos.
+- Implementar la pantalla de Dashboard con conteos por estado y el indicador de casos que requieren intervencion.
 
 ### Fase 3: UX y operacion
 
@@ -411,6 +426,7 @@ El trabajo se organiza en cuatro fases. Cada fase entrega valor demostrable.
 | Vertical Slice | Organizacion por feature (Cases, Timeline, CaseDefinitions) dentro de cada proyecto. |
 | Application compartida | Blazor y Minimal APIs consumen los mismos handlers de Application. DRY. |
 | Capas simples sin Clean Architecture compleja | Cuatro proyectos con dependencias unidimensionales. Sin interfaces en todas partes, sin Use Cases abstractos. Lo justo para el PoC. |
+| Sin Repository Pattern | Application consume CaimmandDbContext directamente. EF Core es la abstraccion de persistencia suficiente para el PoC. Sin interfaces de repositorio ni implementaciones concretas. |
 
 ## Fuera de alcance
 
@@ -444,7 +460,7 @@ El PoC sera considerado exitoso cuando sea posible:
 | Visualizar Timeline | El detalle muestra la cronologia de eventos. |
 | Agregar eventos | El operador y sistemas externos pueden anadir eventos al caso. |
 | Cambiar estado | El operador puede transitar el estado del caso. |
-| Visualizar Dashboard | El dashboard muestra conteos por estado. |
+| Visualizar Dashboard | El dashboard muestra conteos por estado y el indicador de casos que requieren intervencion. |
 | Demo completa | Es posible realizar una demostracion end to end del caso "Recordatorio de Turnos". |
 | Trazabilidad | La timeline permite reconstruir la historia del caso. |
 
