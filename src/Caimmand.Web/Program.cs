@@ -1,6 +1,10 @@
 using Caimmand.Application.Cases.Create;
+using Caimmand.Application.Cases.GetDetail;
+using Caimmand.Application.Cases.List;
+using Caimmand.Application.Dashboard.GetDashboardKpis;
 using Caimmand.Domain;
 using Caimmand.Domain.Entities;
+using Caimmand.Domain.Enums;
 using Caimmand.Infrastructure;
 using Caimmand.Web.Components;
 using FluentValidation;
@@ -29,6 +33,9 @@ try
 
     builder.Services.AddValidatorsFromAssemblyContaining<Caimmand.Application.Marker>();
     builder.Services.AddScoped<CreateCaseHandler>();
+    builder.Services.AddScoped<ListCasesHandler>();
+    builder.Services.AddScoped<GetCaseDetailHandler>();
+    builder.Services.AddScoped<GetDashboardKpisHandler>();
 
     var app = builder.Build();
 
@@ -50,12 +57,12 @@ try
 
     await SeedCaseDefinitionsAsync(app.Services);
 
-    app.MapPost("/cases", async (CreateCaseCommand command, CreateCaseHandler handler, CancellationToken ct) =>
+    app.MapPost("/api/cases", async (CreateCaseCommand command, CreateCaseHandler handler, CancellationToken ct) =>
     {
         try
         {
             var response = await handler.Handle(command, ct);
-            return Results.Created($"/cases/{response.Id}", response);
+            return Results.Created($"/api/cases/{response.Id}", response);
         }
         catch (ValidationException ex)
         {
@@ -66,6 +73,25 @@ try
         }
     })
     .WithName("CreateCase");
+
+    app.MapGet("/api/cases", async (string? status, string? caseDefinitionCode, ListCasesHandler handler, CancellationToken ct) =>
+    {
+        CaseStatus? parsedStatus = null;
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<CaseStatus>(status, ignoreCase: true, out var s))
+        {
+            parsedStatus = s;
+        }
+        var result = await handler.Handle(new ListCasesQuery(parsedStatus, caseDefinitionCode), ct);
+        return Results.Ok(result);
+    })
+    .WithName("ListCases");
+
+    app.MapGet("/api/cases/{id:guid}", async (Guid id, GetCaseDetailHandler handler, CancellationToken ct) =>
+    {
+        var detail = await handler.Handle(new GetCaseDetailQuery(id), ct);
+        return detail is null ? Results.NotFound() : Results.Ok(detail);
+    })
+    .WithName("GetCase");
 
     app.Run();
 

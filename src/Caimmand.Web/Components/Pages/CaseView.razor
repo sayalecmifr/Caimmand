@@ -1,0 +1,140 @@
+@page "/cases/{Id:Guid}"
+@using System.Text.Json
+@using Caimmand.Application.Cases.GetDetail
+@using Caimmand.Domain.Enums
+@inject GetCaseDetailHandler DetailHandler
+@inject NavigationManager Nav
+
+<PageTitle>Caimmand PoC · Detalle del Caso</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <a href="/cases" class="text-decoration-none small">&larr; Volver al listado</a>
+            <h1 class="display-6 fw-semibold mb-0 mt-1">Detalle del Caso</h1>
+        </div>
+    </div>
+
+    @if (Loading)
+    {
+        <div class="text-center py-5 text-muted">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Cargando...
+        </div>
+    }
+    else if (Case is null)
+    {
+        <div class="alert alert-warning" role="alert">
+            No se encontro el caso solicitado.
+            <button class="btn btn-sm btn-outline-secondary ms-3" @onclick="GoBack">Volver al listado</button>
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                    <div class="flex-grow-1">
+                        <h2 class="h4 fw-semibold mb-1">@Case.Title</h2>
+                        <div class="text-muted small">
+                            <span class="fw-semibold">@Case.CaseDefinitionName</span>
+                            <span class="mx-1">·</span>
+                            <code>@Case.CaseDefinitionCode</code>
+                        </div>
+                    </div>
+                    <span class="@StatusBadgeClass(Case.Status) fs-6">@StatusLabel(Case.Status)</span>
+                </div>
+                <hr class="my-3" />
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="text-muted small">Sistema origen</div>
+                        <div class="fw-semibold">@Case.SourceSystem</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-muted small">Fecha de creacion</div>
+                        <div class="fw-semibold">@Case.CreatedAt.ToLocalTime().ToString("f")</div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-muted small">Ultima actualizacion</div>
+                        <div class="fw-semibold">@Case.UpdatedAt.ToLocalTime().ToString("f")</div>
+                    </div>
+                </div>
+                <div class="row g-3 mt-1">
+                    <div class="col-md-12">
+                        <div class="text-muted small">Identificador</div>
+                        <code class="text-body">@Case.Id</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h3 class="h6 fw-semibold mb-3">Contexto</h3>
+                <pre class="bg-light border p-3 rounded font-monospace small mb-0" style="white-space: pre-wrap;">@ContextPrettyJson</pre>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h3 class="h6 fw-semibold mb-2">Timeline</h3>
+                        <p class="text-muted mb-0">Timeline disponible en el proximo sprint.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <h3 class="h6 fw-semibold mb-2">Acciones</h3>
+                        <p class="text-muted mb-0">Cambio de estado disponible proximamente.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private CaseDetail? Case;
+    private bool Loading = true;
+    private string ContextPrettyJson = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Case = await DetailHandler.Handle(new GetCaseDetailQuery(Id), default);
+        if (Case is not null)
+        {
+            ContextPrettyJson = JsonSerializer.Serialize(Case.Context.RootElement, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+        }
+        Loading = false;
+    }
+
+    private void GoBack() => Nav.NavigateTo("/cases");
+
+    private static string StatusLabel(CaseStatus s) => s switch
+    {
+        CaseStatus.Creado => "Creado",
+        CaseStatus.EnCurso => "En curso",
+        CaseStatus.Suspendido => "Suspendido",
+        CaseStatus.Finalizado => "Finalizado",
+        CaseStatus.Cancelado => "Cancelado",
+        _ => s.ToString()
+    };
+
+    private static string StatusBadgeClass(CaseStatus s) => s switch
+    {
+        CaseStatus.Creado => "badge bg-primary",
+        CaseStatus.EnCurso => "badge bg-info",
+        CaseStatus.Suspendido => "badge bg-warning text-dark",
+        CaseStatus.Finalizado => "badge bg-success",
+        CaseStatus.Cancelado => "badge bg-danger",
+        _ => "badge bg-secondary"
+    };
+}
