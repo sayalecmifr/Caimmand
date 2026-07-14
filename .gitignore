@@ -18,3 +18,4 @@ obj/
 
 # Logs
 *.log
+/src/log.txt
