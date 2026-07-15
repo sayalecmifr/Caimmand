@@ -1,15 +1,20 @@
 using Caimmand.Application.Cases.Create;
 using Caimmand.Application.Cases.GetDetail;
 using Caimmand.Application.Cases.List;
+using Caimmand.Application.Cases.UpdateStatus;
 using Caimmand.Application.Dashboard.GetDashboardKpis;
+using Caimmand.Application.Timeline.AddEvent;
+using Caimmand.Application.Timeline.GetTimeline;
 using Caimmand.Domain;
 using Caimmand.Domain.Entities;
 using Caimmand.Domain.Enums;
 using Caimmand.Infrastructure;
 using Caimmand.Web.Components;
 using FluentValidation;
+using FluentValidation.Results;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using System.Text.Json.Serialization;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -29,6 +34,11 @@ try
     builder.Services.AddRazorComponents()
         .AddInteractiveServerComponents();
 
+    builder.Services.ConfigureHttpJsonOptions(options =>
+    {
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
+
     builder.Services.AddCaimmandPersistence(builder.Configuration);
 
     builder.Services.AddValidatorsFromAssemblyContaining<Caimmand.Application.Marker>();
@@ -36,6 +46,9 @@ try
     builder.Services.AddScoped<ListCasesHandler>();
     builder.Services.AddScoped<GetCaseDetailHandler>();
     builder.Services.AddScoped<GetDashboardKpisHandler>();
+    builder.Services.AddScoped<UpdateCaseStatusHandler>();
+    builder.Services.AddScoped<AddTimelineEventHandler>();
+    builder.Services.AddScoped<GetTimelineHandler>();
 
     var app = builder.Build();
 
@@ -92,6 +105,47 @@ try
         return detail is null ? Results.NotFound() : Results.Ok(detail);
     })
     .WithName("GetCase");
+
+    app.MapPatch("/api/cases/{id:guid}/status", async (Guid id, UpdateCaseStatusCommand body, UpdateCaseStatusHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new UpdateCaseStatusCommand(id, body.NewStatus), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var errors = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(errors);
+        }
+    })
+    .WithName("UpdateCaseStatus");
+
+    app.MapPost("/api/cases/{id:guid}/timeline", async (Guid id, AddTimelineEventCommand body, AddTimelineEventHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new AddTimelineEventCommand(id, body.Type, body.Origin, body.Content), ct);
+            return Results.Created($"/api/cases/{id}/timeline", response);
+        }
+        catch (ValidationException ex)
+        {
+            var errors = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(errors);
+        }
+    })
+    .WithName("AddTimelineEvent");
+
+    app.MapGet("/api/cases/{id:guid}/timeline", async (Guid id, GetTimelineHandler handler, CancellationToken ct) =>
+    {
+        var events = await handler.Handle(new GetTimelineQuery(id), ct);
+        return Results.Ok(events);
+    })
+    .WithName("GetTimeline");
 
     app.Run();
 

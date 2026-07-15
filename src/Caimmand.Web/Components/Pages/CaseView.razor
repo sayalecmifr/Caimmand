@@ -1,8 +1,12 @@
 @page "/cases/{Id:Guid}"
 @using System.Text.Json
 @using Caimmand.Application.Cases.GetDetail
+@using Caimmand.Application.Cases.UpdateStatus
+@using Caimmand.Application.Timeline.GetTimeline
 @using Caimmand.Domain.Enums
 @inject GetCaseDetailHandler DetailHandler
+@inject GetTimelineHandler TimelineHandler
+@inject UpdateCaseStatusHandler StatusHandler
 @inject NavigationManager Nav
 
 <PageTitle>Caimmand PoC · Detalle del Caso</PageTitle>
@@ -76,19 +80,59 @@
         </div>
 
         <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-7">
                 <div class="card shadow-sm h-100">
                     <div class="card-body">
-                        <h3 class="h6 fw-semibold mb-2">Timeline</h3>
-                        <p class="text-muted mb-0">Timeline disponible en el proximo sprint.</p>
+                        <h3 class="h6 fw-semibold mb-3">Timeline</h3>
+                        @if (Timeline is null || Timeline.Count == 0)
+                        {
+                            <p class="text-muted mb-0">No hay eventos registrados.</p>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-column gap-3">
+                                @foreach (var item in Timeline)
+                                {
+                                    <div class="border-start border-3 border-primary ps-3">
+                                        <div class="d-flex justify-content-between align-items-baseline">
+                                            <span class="fw-semibold">@item.Type</span>
+                                            <small class="text-muted">@item.OccurredAt.ToLocalTime().ToString("g")</small>
+                                        </div>
+                                        <div class="text-muted small mb-1">@item.Origin</div>
+                                        <div>@item.Content</div>
+                                    </div>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-5">
                 <div class="card shadow-sm h-100">
                     <div class="card-body">
-                        <h3 class="h6 fw-semibold mb-2">Acciones</h3>
-                        <p class="text-muted mb-0">Cambio de estado disponible proximamente.</p>
+                        <h3 class="h6 fw-semibold mb-3">Acciones</h3>
+                        @{
+                            var targets = CaseStatusTransitions.GetValidTargets(Case.Status);
+                        }
+                        @if (targets.Count == 0)
+                        {
+                            <p class="text-muted mb-0">El caso se encuentra en estado terminal (@StatusLabel(Case.Status)).</p>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var target in targets)
+                                {
+                                    <button class="btn btn-outline-primary btn-sm" @onclick="() => ChangeStatus(target)">
+                                        @StatusLabel(target)
+                                    </button>
+                                }
+                            </div>
+                            @if (StatusError is not null)
+                            {
+                                <div class="text-danger small mt-2">@StatusError</div>
+                            }
+                        }
                     </div>
                 </div>
             </div>
@@ -100,14 +144,22 @@
     [Parameter] public string? Id { get; set; }
 
     private CaseDetail? Case;
+    private IReadOnlyList<TimelineEventItem>? Timeline;
     private bool Loading = true;
     private string ContextPrettyJson = string.Empty;
+    private string? StatusError;
 
     protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
     {
         if (Guid.TryParse(Id, out var caseId))
         {
             Case = await DetailHandler.Handle(new GetCaseDetailQuery(caseId), default);
+            Timeline = await TimelineHandler.Handle(new GetTimelineQuery(caseId), default);
             if (Case is not null)
             {
                 ContextPrettyJson = JsonSerializer.Serialize(Case.Context.RootElement, new JsonSerializerOptions
@@ -117,6 +169,21 @@
             }
         }
         Loading = false;
+    }
+
+    private async Task ChangeStatus(CaseStatus newStatus)
+    {
+        if (Case is null) return;
+        StatusError = null;
+        try
+        {
+            await StatusHandler.Handle(new UpdateCaseStatusCommand(Case.Id, newStatus), default);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusError = ex.Message;
+        }
     }
 
     private void GoBack() => Nav.NavigateTo("/cases");

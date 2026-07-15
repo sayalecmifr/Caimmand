@@ -53,6 +53,11 @@ public class CreateCaseHandlerTests
         var entity = await db.Cases.SingleAsync();
         Assert.Equal(response.Id, entity.Id);
         Assert.Equal(CaseStatus.Creado, entity.Status);
+
+        var timelineEvent = await db.TimelineEvents.SingleAsync();
+        Assert.Equal("Creacion", timelineEvent.Type);
+        Assert.Equal("HIS", timelineEvent.Origin);
+        Assert.Equal(1, timelineEvent.Sequence);
     }
 
     [Fact]

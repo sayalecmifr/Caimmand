@@ -59,9 +59,18 @@ public sealed class CreateCaseHandler
         };
 
         _db.Cases.Add(entity);
+        _db.TimelineEvents.Add(new TimelineEvent
+        {
+            CaseId = entity.Id,
+            Sequence = 1,
+            Type = "Creacion",
+            Origin = command.SourceSystem,
+            Content = $"Caso creado por {command.SourceSystem}.",
+            OccurredAt = now
+        });
+
         await _db.SaveChangesAsync(ct);
 
-        // TODO Timeline: registrar primer evento (Type=Creacion, Origin=SourceSystem).
         return new CreateCaseResponse(entity.Id, entity.Status.ToString(), entity.CreatedAt);
     }
 }
