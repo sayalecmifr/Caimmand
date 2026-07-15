@@ -97,7 +97,7 @@
 </div>
 
 @code {
-    [Parameter] public Guid Id { get; set; }
+    [Parameter] public string? Id { get; set; }
 
     private CaseDetail? Case;
     private bool Loading = true;
@@ -105,13 +105,16 @@
 
     protected override async Task OnInitializedAsync()
     {
-        Case = await DetailHandler.Handle(new GetCaseDetailQuery(Id), default);
-        if (Case is not null)
+        if (Guid.TryParse(Id, out var caseId))
         {
-            ContextPrettyJson = JsonSerializer.Serialize(Case.Context.RootElement, new JsonSerializerOptions
+            Case = await DetailHandler.Handle(new GetCaseDetailQuery(caseId), default);
+            if (Case is not null)
             {
-                WriteIndented = true
-            });
+                ContextPrettyJson = JsonSerializer.Serialize(Case.Context.RootElement, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+            }
         }
         Loading = false;
     }
