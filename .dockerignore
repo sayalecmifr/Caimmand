@@ -1,0 +1,30 @@
+# Build output
+**/bin/
+**/obj/
+
+# IDE / local
+.git/
+.vs/
+.idea/
+*.user
+*.suo
+
+# Env y secrets locales
+.env
+.env.*
+*.local.env
+**/appsettings.*.local.json
+
+# Logs
+*.log
+/src/log.txt
+
+# Docker propios
+Dockerfile
+docker-compose*.yml
+
+# Misc
+.github/
+assets/
+docs/
+**/*.md

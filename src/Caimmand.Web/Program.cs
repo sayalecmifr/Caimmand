@@ -68,6 +68,7 @@ try
     app.MapRazorComponents<App>()
         .AddInteractiveServerRenderMode();
 
+    await ApplyMigrationsAsync(app.Services);
     await SeedCaseDefinitionsAsync(app.Services);
 
     app.MapPost("/api/cases", async (CreateCaseCommand command, CreateCaseHandler handler, CancellationToken ct) =>
@@ -173,6 +174,14 @@ try
 
         await db.SaveChangesAsync();
         Log.Information("Sembrando CaseDefinition APPOINTMENT_REMINDER");
+    }
+
+    static async Task ApplyMigrationsAsync(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CaimmandDbContext>();
+        await db.Database.MigrateAsync();
+        Log.Information("Migraciones de EF Core aplicadas");
     }
 }
 catch (Exception ex)
