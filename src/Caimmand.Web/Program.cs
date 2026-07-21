@@ -1,3 +1,5 @@
+using Caimmand.Application.CaseDefinitions.Create;
+using Caimmand.Application.CaseDefinitions.List;
 using Caimmand.Application.Cases.Create;
 using Caimmand.Application.Cases.GetDetail;
 using Caimmand.Application.Cases.List;
@@ -42,6 +44,8 @@ try
     builder.Services.AddCaimmandPersistence(builder.Configuration);
 
     builder.Services.AddValidatorsFromAssemblyContaining<Caimmand.Application.Marker>();
+    builder.Services.AddScoped<CreateCaseDefinitionHandler>();
+    builder.Services.AddScoped<ListCaseDefinitionsHandler>();
     builder.Services.AddScoped<CreateCaseHandler>();
     builder.Services.AddScoped<ListCasesHandler>();
     builder.Services.AddScoped<GetCaseDetailHandler>();
@@ -148,6 +152,30 @@ try
     })
     .WithName("GetTimeline");
 
+    app.MapGet("/api/case-definitions", async (ListCaseDefinitionsHandler handler, CancellationToken ct) =>
+    {
+        var result = await handler.Handle(new ListCaseDefinitionsQuery(), ct);
+        return Results.Ok(result);
+    })
+    .WithName("ListCaseDefinitions");
+
+    app.MapPost("/api/case-definitions", async (CreateCaseDefinitionCommand command, CreateCaseDefinitionHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(command, ct);
+            return Results.Created($"/api/case-definitions/{response.Id}", response);
+        }
+        catch (ValidationException ex)
+        {
+            var errors = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(errors);
+        }
+    })
+    .WithName("CreateCaseDefinition");
+
     app.Run();
 
     static async Task SeedCaseDefinitionsAsync(IServiceProvider services)
@@ -167,8 +195,8 @@ try
             Description = "Recordatorio automatico de turnos medicos",
             Category = "Appointments",
             IsActive = true,
-            DefaultPriority = "Normal",
-            DisplayColor = "Blue",
+            DefaultPriority = "Media",
+            DisplayColor = "#3b82f6",
             DisplayIcon = "calendar"
         });
 

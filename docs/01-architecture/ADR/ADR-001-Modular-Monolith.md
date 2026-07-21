@@ -4,7 +4,7 @@
 |----------|----------------------|
 | Producto | Caimmand             |
 | Version  | 0.1                  |
-| Estado   | Proposed             |
+| Estado   | Accepted             |
 | Fecha    | 2026-07-13           |
 | Autor    | CAI Process Grid Team |
 

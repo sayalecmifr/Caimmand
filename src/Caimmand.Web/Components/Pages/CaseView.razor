@@ -2,11 +2,13 @@
 @using System.Text.Json
 @using Caimmand.Application.Cases.GetDetail
 @using Caimmand.Application.Cases.UpdateStatus
+@using Caimmand.Application.Timeline.AddEvent
 @using Caimmand.Application.Timeline.GetTimeline
 @using Caimmand.Domain.Enums
 @inject GetCaseDetailHandler DetailHandler
 @inject GetTimelineHandler TimelineHandler
 @inject UpdateCaseStatusHandler StatusHandler
+@inject AddTimelineEventHandler AddEventHandler
 @inject NavigationManager Nav
 
 <PageTitle>Caimmand PoC · Detalle del Caso</PageTitle>
@@ -104,6 +106,42 @@
                                 }
                             </div>
                         }
+
+                        @if (Case is not null && Case.Status != CaseStatus.Finalizado && Case.Status != CaseStatus.Cancelado)
+                        {
+                            <hr class="my-3" />
+                            <h4 class="h6 fw-semibold mb-2">Agregar evento</h4>
+                            <div class="row g-2">
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-1">Tipo</label>
+                                    <select class="form-select form-select-sm" @bind="NewEventType" @bind:event="onchange">
+                                        <option value="">Seleccione...</option>
+                                        <option value="Comentario">Comentario</option>
+                                        <option value="Aviso">Aviso</option>
+                                        <option value="Confirmacion">Confirmacion</option>
+                                        <option value="Cancelacion">Cancelacion</option>
+                                        <option value="Llamado">Llamado</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-8">
+                                    <label class="form-label small text-muted mb-1">Contenido</label>
+                                    <input class="form-control form-control-sm" @bind="NewEventContent" placeholder="Descripcion del evento" />
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-end mt-2">
+                                <button class="btn btn-sm btn-primary" @onclick="AddEvent" disabled="@AddingEvent">
+                                    @if (AddingEvent)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                    }
+                                    Registrar evento
+                                </button>
+                            </div>
+                            @if (AddEventError is not null)
+                            {
+                                <div class="text-danger small mt-2">@AddEventError</div>
+                            }
+                        }
                     </div>
                 </div>
             </div>
@@ -149,6 +187,11 @@
     private string ContextPrettyJson = string.Empty;
     private string? StatusError;
 
+    private string? NewEventType;
+    private string? NewEventContent;
+    private bool AddingEvent;
+    private string? AddEventError;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -183,6 +226,37 @@
         catch (Exception ex)
         {
             StatusError = ex.Message;
+        }
+    }
+
+    private async Task AddEvent()
+    {
+        if (Case is null) return;
+        AddEventError = null;
+
+        if (string.IsNullOrWhiteSpace(NewEventType))
+        {
+            AddEventError = "El tipo de evento es obligatorio.";
+            return;
+        }
+
+        AddingEvent = true;
+        try
+        {
+            await AddEventHandler.Handle(
+                new AddTimelineEventCommand(Case.Id, NewEventType, "Operador", NewEventContent ?? string.Empty),
+                default);
+            NewEventType = null;
+            NewEventContent = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            AddEventError = ex.Message;
+        }
+        finally
+        {
+            AddingEvent = false;
         }
     }
 

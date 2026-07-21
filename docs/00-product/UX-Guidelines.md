@@ -309,8 +309,15 @@ El Detalle es la pantalla principal del producto. Es donde el operador gobierna 
 
 +-------------------------------+ +-------------------------------+
 |  Timeline                     | |  Acciones                     |
-|  Timeline disponible en el    | |  Cambio de estado disponible  |
-|  proximo sprint.              | |  proximamente.                |
+|  [Creacion] HIS - 14/07 10:30 | |  [Suspender]  [Finalizar]     |
+|  Caso creado por HIS.         | |  [Cancelar]                   |
+|                               | |                               |
+|  [Aviso] n8n - 14/07 11:00     | |  Agregar evento (cuando el    |
+|  SMS enviado al paciente.      | |  caso no esta finalizado/)    |
+|                               | |  cancelado.                   |
+|  [+ Agregar evento] (form     | |                               |
+|  Tipo/Content/Registrar)      | |                               |
+|  visible si no esta terminal  | |                               |
 +-------------------------------+ +-------------------------------+
 ```
 
