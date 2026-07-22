@@ -92,14 +92,14 @@ try
     })
     .WithName("CreateCase");
 
-    app.MapGet("/api/cases", async (string? status, string? caseDefinitionCode, ListCasesHandler handler, CancellationToken ct) =>
+    app.MapGet("/api/cases", async (string? status, string? caseDefinitionCode, string? externalId, ListCasesHandler handler, CancellationToken ct) =>
     {
         CaseStatus? parsedStatus = null;
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<CaseStatus>(status, ignoreCase: true, out var s))
         {
             parsedStatus = s;
         }
-        var result = await handler.Handle(new ListCasesQuery(parsedStatus, caseDefinitionCode), ct);
+        var result = await handler.Handle(new ListCasesQuery(parsedStatus, caseDefinitionCode, externalId), ct);
         return Results.Ok(result);
     })
     .WithName("ListCases");

@@ -106,4 +106,65 @@ public class ListCasesHandlerTests
 
         Assert.Empty(result);
     }
+
+    private static async Task<TestDbContext> SeedWithExternalIdAsync(params (string code, string externalId)[] seeds)
+    {
+        var db = TestDbContext.Create();
+        db.CaseDefinitions.Add(new CaseDefinition { Code = "APPOINTMENT_REMINDER", Name = "Recordatorio de Turno", IsActive = true });
+        foreach (var (code, externalId) in seeds)
+        {
+            db.Cases.Add(new Case
+            {
+                Id = Guid.NewGuid(),
+                Title = $"Caso {externalId}",
+                Status = CaseStatus.Creado,
+                CaseDefinitionCode = code,
+                SourceSystem = "HIS",
+                Context = JsonDocument.Parse($"{{\"externalId\":\"{externalId}\"}}"),
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        await db.SaveChangesAsync();
+        return db;
+    }
+
+    [Fact]
+    public async Task ListCases_ByExternalId_ReturnsOnlyMatch()
+    {
+        var db = await SeedWithExternalIdAsync(
+            ("APPOINTMENT_REMINDER", "APT-001"),
+            ("APPOINTMENT_REMINDER", "APT-002"));
+        var handler = new ListCasesHandler(db);
+
+        var result = await handler.Handle(new ListCasesQuery(null, "APPOINTMENT_REMINDER", "APT-001"), default);
+
+        Assert.Single(result);
+        Assert.Equal("Caso APT-001", result[0].Title);
+    }
+
+    [Fact]
+    public async Task ListCases_ByExternalId_NoMatch_ReturnsEmpty()
+    {
+        var db = await SeedWithExternalIdAsync(
+            ("APPOINTMENT_REMINDER", "APT-001"),
+            ("APPOINTMENT_REMINDER", "APT-002"));
+        var handler = new ListCasesHandler(db);
+
+        var result = await handler.Handle(new ListCasesQuery(null, "APPOINTMENT_REMINDER", "APT-X"), default);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task ListCases_ByExternalId_Null_ReturnsAll()
+    {
+        var db = await SeedWithExternalIdAsync(
+            ("APPOINTMENT_REMINDER", "APT-001"),
+            ("APPOINTMENT_REMINDER", "APT-002"));
+        var handler = new ListCasesHandler(db);
+
+        var result = await handler.Handle(new ListCasesQuery(null, "APPOINTMENT_REMINDER"), default);
+
+        Assert.Equal(2, result.Count);
+    }
 }

@@ -20,6 +20,14 @@ public sealed class ListCasesHandler
             .OrderByDescending(c => c.CreatedAt)
             .ToListAsync(ct);
 
+        if (!string.IsNullOrEmpty(query.ExternalId))
+        {
+            cases = cases
+                .Where(c => c.Context.RootElement.TryGetProperty("externalId", out var ext)
+                            && ext.GetString() == query.ExternalId)
+                .ToList();
+        }
+
         var definitions = await _db.CaseDefinitions
             .ToDictionaryAsync(d => d.Code, d => d.Name, ct);
 

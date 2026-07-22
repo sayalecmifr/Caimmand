@@ -32,6 +32,7 @@ Crea un nuevo Caso. La `CaseDefinition` referenciada debe existir y estar activa
   "title": "Recordatorio del turno de Juan Perez",
   "sourceSystem": "HIS",
   "context": {
+    "externalId": "APT-2026-0718-001",
     "patientId": 12345,
     "patientName": "Juan Perez",
     "appointmentDate": "2026-07-18T10:30",
@@ -43,7 +44,7 @@ Crea un nuevo Caso. La `CaseDefinition` referenciada debe existir y estar activa
 - `caseDefinitionCode` (string, obligatorio): codigo de la definicion activa.
 - `title` (string, obligatorio).
 - `sourceSystem` (string, obligatorio): identificador del sistema de origen (ej. `HIS`).
-- `context` (JSON object, obligatorio): libre, segun el tipo de caso. Lo que el operador vera en la UI.
+- `context` (JSON object, obligatorio): libre, segun el tipo de caso. Lo que el operador vera en la UI. Se recomienda incluir `externalId` cuando el sistema de origen lo provea (ver 6.6 — idempotencia).
 
 **Response 201 Created**
 
@@ -72,6 +73,7 @@ curl -X POST http://localhost:8080/api/cases \
     "title": "Recordatorio del turno de Juan Perez",
     "sourceSystem": "HIS",
     "context": {
+      "externalId": "APT-2026-0718-001",
       "patientId": 12345,
       "patientName": "Juan Perez",
       "appointmentDate": "2026-07-18T10:30",
@@ -92,18 +94,27 @@ curl -X POST http://localhost:8080/api/cases \
 
 ### 1.2 GET /api/cases
 
-Lista casos filtrando por estado y/o `CaseDefinitionCode`.
+Lista casos filtrando por estado, `CaseDefinitionCode` y/o `externalId` (idempotencia por turno).
 
 **Query params**
 
 - `status` (opcional): uno de `Creado`, `EnCurso`, `Suspendido`, `Finalizado`, `Cancelado` (case-insensitive).
 - `caseDefinitionCode` (opcional): el codigo exacto de la definicion.
+- `externalId` (opcional): filtra por `Context.externalId` (lookup en JSONB en memoria, ver 6.6). Identifica la unidad de trabajo dentro del `sourceSystem` (ej. id del turno dentro del HIS). No confundir con `sourceSystem` mismo.
 
 **curl**
 
 ```bash
 curl "http://localhost:8080/api/cases?status=Suspendido&caseDefinitionCode=APPOINTMENT_REMINDER"
 ```
+
+Lookup por `externalId` (tipico para idempotencia en n8n):
+
+```bash
+curl "http://localhost:8080/api/cases?caseDefinitionCode=APPOINTMENT_REMINDER&externalId=APT-2026-0718-001"
+```
+
+Si response es `[]` → no existe caso para ese turno, se puede crear. Si trae un elemento → skip.
 
 **Response 200 OK**
 
@@ -462,7 +473,7 @@ Referencia operativa para configurar los workflows de n8n contra la Command API 
 
 - **`sourceSystem` ≠ `Origin`**: el HIS es el sistema de origen del caso (`sourceSystem: "HIS"`); n8n es el transporte/orquestador y firma como `Origin: "n8n"` en los eventos de timeline que reporta.
 - **Operator oversight**: n8n nunca mueve un caso a `Cancelado`. n8n si finaliza (`Finalizado`) cuando el paciente confirma explicitamente.
-- **Idempotencia**: basada en `Context.appointmentId` (lookup client-side; ver 6.6).
+- **Idempotencia convencional**: `Context.externalId` es la **clave Caimmand-side** para idempotencia. n8n mapea el id que el HIS le dé (turnoId, appointmentId, codigo de turno, etc.) a esa clave al crear el caso. Si el HIS no provee id estable, skip idempotencia: POST directo y aceptar duplicados en re-runs (ver 6.6).
 - **Toda accion relevante genera TimelineEvent**: envio, reenvio, confirmacion, error. Si hiciste algo, postealo.
 - **Content legible y especifico**: nunca "OK" ni "fallo". Incluir proveedor, MSID, phone mascarado, texto de error crudo.
 
@@ -480,7 +491,7 @@ Referencia operativa para configurar los workflows de n8n contra la Command API 
 
 ### 6.3 Workflow 1: Ingesta HIS → Caimmand
 
-Crea un caso por cada turno del dia leido del HIS. Idempotente por `appointmentId` (ver 6.6).
+Crea un caso por cada turno del dia leido del HIS. Idempotente por `externalId` **cuando el HIS provee un id estable** (ver 6.6 — fallback si no lo hay).
 
 ```
 +-----------------------------------------------------------+
@@ -494,40 +505,52 @@ Crea un caso por cada turno del dia leido del HIS. Idempotente por `appointmentI
         v
    [Loop por turno]
         |
-        v
-   [GET /api/cases?caseDefinitionCode=APPOINTMENT_REMINDER]
+        +-- Tiene id estable (HIS-side, label cual sea)
+        |       |
+        |       v
+        |   [GET /api/cases?caseDefinitionCode=APPOINTMENT_REMINDER&externalId={{ id }}]
+        |       |-- []   --> no existe --> POST (Branch A)
+        |       |-- [1]  --> ya existe --> skip
         |
-        v
-   [Filter client-side por Context.appointmentId]
-        |
-        +-- ya existe --> skip
+        +-- No tiene id estable
+                |
+                v
+            [Skip GET, POST directo] (Branch B, acepta dupes)
         |
         v
    [POST /api/cases  (Creado, sourceSystem=HIS)]
         |
         v
-   [Guardar caseId <-> appointmentId en Static Data]
+   [Guardar caseId <-> externalId en Static Data (solo Branch A)]
 ```
 
 **Paso 1 — GET turnos desde el HIS**
 
-Configuracion del HIS fuera de Caimmand (HTTP Request o nodo SQL/DB). Output: lista de turnos con `appointmentId`, `patientId`, `patientName`, `patientPhone`, `appointmentDate`, `doctor`, `doctorSpecialty`.
+Configuracion del HIS fuera de Caimmand (HTTP Request o nodo SQL/DB). Output: lista de turnos con los campos que el HIS exponga — tipicamente `patientId`, `patientName`, `patientPhone`, `appointmentDate`, `doctor`, `doctorSpecialty`, y opcionalmente un id estable (turnoId, appointmentId, codigo de turno, etc.).
 
-**Paso 2 — GET casos existentes (idempotencia)**
+**Paso 2 — Branch condicional sobre idempotencia**
 
-n8n HTTP Request Node:
-- Method: `GET`
-- URL: `http://localhost:8080/api/cases?caseDefinitionCode=APPOINTMENT_REMINDER`
+El `externalId` es la **clave Caimmand-side** (convencion fija en el handler). n8n decide segun el HIS:
 
-Seguido de un Function/Filter node que retenga solo los casos donde `Context.appointmentId == {{$json.appointmentId}}` (slot por turno en el loop).
+- **Branch A — el HIS provee un id estable** (con cualquier label HIS-side, ej. `turnoId`):
+  - n8n lo publica como `Context.externalId` al crear (ver paso 3).
+  - n8n HTTP Request Node (lookup idempotencia):
+    - Method: `GET`
+    - URL: `http://localhost:8080/api/cases?caseDefinitionCode=APPOINTMENT_REMINDER&externalId={{ $json.turnoId }}`
+  - Si la response es `[]` → no existe caso, se continua con el POST. Si trae un elemento → skip. El filtro por `externalId` se resuelve en Caimmand (ver 6.6); no hace falta filtrar client-side.
 
-**Paso 3 — POST /api/cases (si no existe)**
+- **Branch B — el HIS no provee id estable**:
+  - Skip lookup. Post directo en paso 3 (sin `externalId` en `Context`).
+  - Aceptar que re-runs del WF1 pueden crear duplicados en el Dashboard. Trade-off conscious del PoC; el operador reconcilia manualmente si detecta dupes.
+
+**Paso 3 — POST /api/cases**
 
 n8n HTTP Request Node:
 - Method: `POST`
 - URL: `http://localhost:8080/api/cases`
 - Headers: `Content-Type: application/json`
-- Body (JSON):
+
+Body Branch A (con idempotency key):
 
 ```json
 {
@@ -535,7 +558,7 @@ n8n HTTP Request Node:
   "title": "Recordatorio - {{ $json.patientName }} - {{ $json.appointmentDate }}",
   "sourceSystem": "HIS",
   "context": {
-    "appointmentId": "{{ $json.appointmentId }}",
+    "externalId": "{{ $json.turnoId }}",
     "patientId": {{ $json.patientId }},
     "patientName": "{{ $json.patientName }}",
     "patientPhone": "{{ $json.patientPhone }}",
@@ -546,9 +569,27 @@ n8n HTTP Request Node:
 }
 ```
 
-**Paso 4 — Mapeo caso ↔ appointmentId**
+Body Branch B (sin idempotency key — omitir `externalId`):
 
-Guardar `caseId` (devuelto por el `POST`) junto a `appointmentId` en n8n Static Data (o Redis / tabla simple, ver 6.7). Esto evita volver a hacer el `GET` en cada corrida de los otros workflows.
+```json
+{
+  "caseDefinitionCode": "APPOINTMENT_REMINDER",
+  "title": "Recordatorio - {{ $json.patientName }} - {{ $json.appointmentDate }}",
+  "sourceSystem": "HIS",
+  "context": {
+    "patientId": {{ $json.patientId }},
+    "patientName": "{{ $json.patientName }}",
+    "patientPhone": "{{ $json.patientPhone }}",
+    "appointmentDate": "{{ $json.appointmentDate }}",
+    "doctor": "{{ $json.doctor }}",
+    "doctorSpecialty": "{{ $json.doctorSpecialty }}"
+  }
+}
+```
+
+**Paso 4 — Mapeo caso ↔ externalId** (Branch A solo)
+
+Guardar `caseId` (devuelto por el `POST`) junto a `externalId` (el valor HIS-side) en n8n Static Data (o Redis / tabla simple, ver 6.7). En Branch B no hay mapeo idempotente, pero se puede guardar `caseId` por `appointmentDate + patientName` para correlacionar en WF2.
 
 ### 6.4 Workflow 2: Envio SMS (24h antes del turno, por caso)
 
@@ -582,7 +623,7 @@ Envia el SMS y registra el evento. Ante falla, suspende automaticamente para que
 
 **Paso 1 — Lookup caseId**
 
-Leer del Static Data (o equivalente) el `caseId` asociado al `appointmentId` del turno.
+Leer del Static Data (o equivalente) el `caseId` asociado al `externalId` del turno.
 
 **Paso 2 — PATCH /status (Creado → EnCurso)**
 
@@ -662,7 +703,7 @@ Recibe la respuesta del paciente via el gateway SMS/WhatsApp y registra el event
    [Parse respuesta (Confirmar | Cancelar)]
         |
         v
-   [Lookup caseId por phone o appointmentId]
+   [Lookup caseId por phone o externalId]
         |
         v
    [POST /timeline  type=Confirmacion|Cancelacion]
@@ -674,11 +715,11 @@ Recibe la respuesta del paciente via el gateway SMS/WhatsApp y registra el event
 
 **Paso 1 — Parse respuesta**
 
-El body del webhook depende del gateway. Tipicamente trae `from` (phone), `body` (texto), y a veces metadata con `appointmentId` si se envio como parte del SMS original.
+El body del webhook depende del gateway. Tipicamente trae `from` (phone), `body` (texto), y a veces metadata con `externalId` si se envio como parte del SMS original.
 
 **Paso 2 — Lookup caseId**
 
-Si el gateway devuelve `appointmentId` en metadata → directo desde Static Data.
+Si el gateway devuelve `externalId` en metadata → directo desde Static Data.
 Si no → lookup por phone, requiriendo traer casos activos y matchear contra `Context.patientPhone`.
 
 **Paso 3 — POST /timeline**
@@ -714,23 +755,29 @@ n8n HTTP Request Node:
 
 Si `responseType == "Cancelacion"`: no se mueve estado. El operador abre el caso en Blazor, lee el evento `Cancelacion` en la timeline, valida, y hace manualmente `EnCurso → Cancelado` desde la UI.
 
-### 6.6 Idempotencia — limitacion conocida
+### 6.6 Idempotencia
 
-El endpoint `GET /api/cases` solo filtra por `status` y `caseDefinitionCode` hoy. El filtro por `Context.appointmentId` se hace **client-side** (se traen todos los `APPOINTMENT_REMINDER` y se filtra en n8n con un nodo Function/Filter).
+El endpoint `GET /api/cases` soporta el query param `externalId` que filtra por `Context.externalId` (JSONB). n8n lo usa directo: si la response es `[]` → el turno no tiene caso, se POSTea; si trae un elemento → skip. El filtro se resuelve en Caimmand, no client-side.
 
-Esto funciona en PoC (volumen bajo). Si escala:
+`externalId` es **convencion Caimmand-side** (hardcodeada en el handler). El nombre que el HIS use (`turnoId`, `appointmentId`, `codigoTurno`, etc.) es irrelevante — n8n lo mapea a `Context.externalId` al crear el caso y lo usa en el `GET` para idempotencia.
 
-- **Item de backlog (Iteracion B/C)**: agregar endpoint `GET /api/cases?context.appointmentId=X` en Caimmand que devuelva lookup directo en PostgreSQL por el JSONB (`Context->>'appointmentId'`). Mientras tanto, el workflow 1 hace el workaround client-side.
+**Fallback sin id estable**: si el HIS no provee un id unico por turno (walk-ins, turnos viejos, etc.), n8n skip el `GET` y hace `POST` directo sin `externalId` en `Context`. Trade-off conscious del PoC: re-runs del WF1 pueden crear duplicados en el Dashboard. Si se quiere cerrar esa puerta, ver **backlog (Iteracion D)**.
 
-### 6.7 Mapeo caso ↔ appointmentId
+**Detalle de implementacion (PoC)**: el filtro se aplica en memoria despues de traer los casos del `CaseDefinitionCode` dado. Funciona bien en volumen PoC (decenas de casos por definicion). Si escala:
 
-Caimmand no guarda ese mapping; `Context.appointmentId` vive en el JSONB pero no tiene indice. El mapeo lo mantiene n8n en una de estas opciones (eleccion del integrador):
+- **Backlog (Iteracion C)**: empujar el filtro a SQL con un indice GIN sobre `Context` y `EF.Functions.JsonContains` (Npgsql). Hasta entonces, el costo es traer los N casos del `CaseDefinitionCode` + filtrar en runtime — aceptable.
+
+- **Backlog (Iteracion D)**: hacer la **idempotency key configurable** por `CaseDefinition` (columna `IdempotencyContextKey`, default `"externalId"`) para que el handler lea el nombre de la clave de la definicion en vez de hardcodear `externalId`. Permite que `MEDICAL_AUDIT` use `auditId`, `INVOICE_FOLLOWUP` use `invoiceId`, etc. sin tocar el handler ni recompilar. Migracion EF Core + 1 test + doc update.
+
+### 6.7 Mapeo caso ↔ externalId
+
+Caimmand no guarda ese mapping; `Context.externalId` vive en el JSONB pero no tiene indice. El mapeo lo mantiene n8n en una de estas opciones (eleccion del integrador):
 
 - **n8n Static Data**: simple, sin dependencias. Pierde si se resetea n8n.
-- **Tabla en PostgreSQL**: una tabla dedicada `n8n_case_mapping(appointment_id, case_id)`. Sobrevive restarts.
+- **Tabla en PostgreSQL**: una tabla dedicada `n8n_case_mapping(external_id, case_id)`. Sobrevive restarts.
 - **Redis**: si ya hay Redis en el stack. Omitido del PoC.
 
-Si se pierde el mapping, se puede reconstruir desde `GET /api/cases` filtrando client-side por `appointmentId` (mismo workaround de la idempotencia).
+Si se pierde el mapping, se puede reconstruir desde `GET /api/cases` filtrando client-side por `externalId` (mismo workaround de la idempotencia).
 
 ### 6.8 Convencion de tipos de evento
 
