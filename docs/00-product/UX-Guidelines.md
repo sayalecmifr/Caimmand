@@ -19,19 +19,20 @@
 5. [Dashboard](#dashboard)
 6. [Listado de casos](#listado-de-casos)
 7. [Detalle del caso](#detalle-del-caso)
-8. [Timeline](#timeline)
-9. [Estados](#estados)
-10. [Prioridad visual](#prioridad-visual)
-11. [Navegacion](#navegacion)
-12. [Uso de colores](#uso-de-colores)
-13. [Iconografia](#iconografia)
-14. [Tipografia](#tipografia)
-15. [Estados vacios](#estados-vacios)
-16. [Mensajes](#mensajes)
-17. [Responsive](#responsive)
-18. [Que evitar](#que-evitar)
-19. [Evolucion futura](#evolucion-futura)
-20. [Estado del documento](#estado-del-documento)
+8. [Login](#login)
+9. [Timeline](#timeline)
+10. [Estados](#estados)
+11. [Prioridad visual](#prioridad-visual)
+12. [Navegacion](#navegacion)
+13. [Uso de colores](#uso-de-colores)
+14. [Iconografia](#iconografia)
+15. [Tipografia](#tipografia)
+16. [Estados vacios](#estados-vacios)
+17. [Mensajes](#mensajes)
+18. [Responsive](#responsive)
+19. [Que evitar](#que-evitar)
+20. [Evolucion futura](#evolucion-futura)
+21. [Estado del documento](#estado-del-documento)
 
 ## Introduccion
 
@@ -330,6 +331,70 @@ El Detalle es la pantalla principal del producto. Es donde el operador gobierna 
                                                                |
   No se encontro el caso solicitado.
   [Volver al listado]
+```
+
+## Login
+
+### Que responde
+
+Quien esta entrando al portal y con que rol. Es la unica pantalla que el usuario ve antes de saber si tiene algo para operar.
+
+### Elementos
+
+- Marca Caimmand arriba.
+- Mensaje subtitulo "Portal de operacion".
+- Campo Usuario (autofocus, autocomplete=username).
+- Campo Contrasenia (password, autocomplete=current-password).
+- Boton primario "Ingresar" (ancho completo).
+- Mensaje de error inline si la credencial fallo (no revelar cual campo fallo).
+- Nota inferior con link a credenciales/consideraciones del repositorio.
+
+### Reglas
+
+- Sin sidebar, sin navbar, sin menues: layout vacio. El foco va a la credencial.
+- El error no bloquea el flujo: el operador puede reintentar de inmediato.
+- Redirige a la pantalla que el operador pedia originalmente (`returnUrl`) tras login exitoso; si no habia `returnUrl`, redirige al Dashboard.
+- Si el operador ya esta logueado y pide `/login`, no hace falta: puede navegar directamente.
+- Cierre de sesion via boton "Salir" en el layout principal (top-right).
+
+### Wireframe
+
+```
++---------------------------------------------------------------+
+|                                                               |
+|                                                               |
+|                       +---------------------------+            |
+|                       |  Caimmand                 |            |
+|                       |  Portal de operacion      |            |
+|                       |                           |            |
+|                       |  [Usuario           ]     |            |
+|                       |  [Contrasenia       ]     |            |
+|                       |                           |            |
+|                       |  [    Ingresar     ]      |            |
+|                       |                           |            |
+|                       |  Credenciales default y   |            |
+|                       |  consideraciones de      |            |
+|                       |  seguridad en el README. |            |
+|                       +---------------------------+            |
+|                                                               |
++---------------------------------------------------------------+
+```
+
+### Estado de error
+
+```
++---------------------------+
+|  Caimmand                 |
+|  Portal de operacion      |
+|                           |
+|  [!] Usuario o contrasenia|
+|      incorrectos.         |
+|                           |
+|  [Usuario           ]     |
+|  [Contrasenia       ]     |
+|                           |
+|  [    Ingresar     ]      |
++---------------------------+
 ```
 
 ## Timeline

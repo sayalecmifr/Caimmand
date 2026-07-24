@@ -1,0 +1,10 @@
+@inject NavigationManager Nav
+
+@code {
+    protected override void OnInitialized()
+    {
+        var current = new Uri(Nav.Uri).PathAndQuery;
+        var target = $"/login?returnUrl={Uri.EscapeDataString(current)}";
+        Nav.NavigateTo(target, forceLoad: true);
+    }
+}

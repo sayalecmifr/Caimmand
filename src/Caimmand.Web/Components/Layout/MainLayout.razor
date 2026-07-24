@@ -1,4 +1,5 @@
 ﻿@inherits LayoutComponentBase
+@inject NavigationManager Nav
 
 <div class="page">
     <div class="sidebar">
@@ -6,8 +7,22 @@
     </div>
 
     <main>
-        <div class="top-row px-4 d-flex align-items-center">
+        <div class="top-row px-4 d-flex align-items-center justify-content-between">
             <span class="text-muted small">Caimmand PoC · v0.1</span>
+            <AuthorizeView>
+                <Authorized>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="text-muted small">
+                            <span class="fw-semibold">@context.User.Identity?.Name</span>
+                            <span class="badge bg-secondary ms-1">@context.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value</span>
+                        </span>
+                        <form action="/account/logout" method="post" class="d-inline">
+                            <AntiforgeryToken />
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">Salir</button>
+                        </form>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
         </div>
 
         <article class="content px-4">

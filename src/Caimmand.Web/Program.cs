@@ -11,9 +11,14 @@ using Caimmand.Domain;
 using Caimmand.Domain.Entities;
 using Caimmand.Domain.Enums;
 using Caimmand.Infrastructure;
+using Caimmand.Web.Auth;
 using Caimmand.Web.Components;
 using FluentValidation;
 using FluentValidation.Results;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using System.Text.Json.Serialization;
@@ -42,6 +47,36 @@ try
     });
 
     builder.Services.AddCaimmandPersistence(builder.Configuration);
+    builder.Services.AddCascadingAuthenticationState();
+
+    var authOptions = builder.Configuration
+        .GetSection(AuthOptions.SectionName)
+        .Get<AuthOptions>() ?? new AuthOptions();
+    builder.Services.AddSingleton(authOptions);
+    builder.Services.AddSingleton<LoginService>();
+
+    builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+        .AddCookie(options =>
+        {
+            options.Cookie.Name = authOptions.CookieName;
+            options.LoginPath = "/login";
+            options.LogoutPath = "/account/logout";
+            options.AccessDeniedPath = "/login";
+            options.ExpireTimeSpan = TimeSpan.FromHours(8);
+            options.SlidingExpiration = true;
+        })
+        .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(ApiKeyAuthHandler.SchemeName, _ => { });
+
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy("ApiAuth", policy => policy
+            .RequireAuthenticatedUser()
+            .AddAuthenticationSchemes(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                ApiKeyAuthHandler.SchemeName));
+    });
+
+    builder.Services.AddHttpContextAccessor();
 
     builder.Services.AddValidatorsFromAssemblyContaining<Caimmand.Application.Marker>();
     builder.Services.AddScoped<CreateCaseDefinitionHandler>();
@@ -64,6 +99,8 @@ try
 
     app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
     app.UseHttpsRedirection();
+    app.UseAuthentication();
+    app.UseAuthorization();
     app.UseAntiforgery();
 
     app.UseSerilogRequestLogging();
@@ -74,6 +111,33 @@ try
 
     await ApplyMigrationsAsync(app.Services);
     await SeedCaseDefinitionsAsync(app.Services);
+
+    app.MapPost("/account/login", async (HttpContext ctx, LoginService login, CancellationToken ct) =>
+    {
+        var form = await ctx.Request.ReadFormAsync(ct);
+        var username = form["username"].ToString();
+        var password = form["password"].ToString();
+        var returnUrl = form["returnUrl"].ToString();
+
+        if (login.TryValidate(username, password, out var user) && user is not null)
+        {
+            var principal = login.BuildPrincipal(user);
+            await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            var safe = string.IsNullOrWhiteSpace(returnUrl) || !Uri.IsWellFormedUriString(returnUrl, UriKind.Relative)
+                ? "/"
+                : returnUrl;
+            return Results.Redirect(safe);
+        }
+
+        var q = string.IsNullOrEmpty(returnUrl) ? "?error=1" : $"?error=1&returnUrl={Uri.EscapeDataString(returnUrl)}";
+        return Results.Redirect($"/login{q}");
+    }).AllowAnonymous();
+
+    app.MapPost("/account/logout", async (HttpContext ctx, CancellationToken ct) =>
+    {
+        await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return Results.Redirect("/login");
+    }).AllowAnonymous();
 
     app.MapPost("/api/cases", async (CreateCaseCommand command, CreateCaseHandler handler, CancellationToken ct) =>
     {
@@ -90,7 +154,8 @@ try
             return Results.ValidationProblem(errors);
         }
     })
-    .WithName("CreateCase");
+    .WithName("CreateCase")
+    .RequireAuthorization("ApiAuth");
 
     app.MapGet("/api/cases", async (string? status, string? caseDefinitionCode, string? externalId, ListCasesHandler handler, CancellationToken ct) =>
     {
@@ -102,14 +167,16 @@ try
         var result = await handler.Handle(new ListCasesQuery(parsedStatus, caseDefinitionCode, externalId), ct);
         return Results.Ok(result);
     })
-    .WithName("ListCases");
+    .WithName("ListCases")
+    .RequireAuthorization("ApiAuth");
 
     app.MapGet("/api/cases/{id:guid}", async (Guid id, GetCaseDetailHandler handler, CancellationToken ct) =>
     {
         var detail = await handler.Handle(new GetCaseDetailQuery(id), ct);
         return detail is null ? Results.NotFound() : Results.Ok(detail);
     })
-    .WithName("GetCase");
+    .WithName("GetCase")
+    .RequireAuthorization("ApiAuth");
 
     app.MapPatch("/api/cases/{id:guid}/status", async (Guid id, UpdateCaseStatusCommand body, UpdateCaseStatusHandler handler, CancellationToken ct) =>
     {
@@ -126,7 +193,8 @@ try
             return Results.ValidationProblem(errors);
         }
     })
-    .WithName("UpdateCaseStatus");
+    .WithName("UpdateCaseStatus")
+    .RequireAuthorization("ApiAuth");
 
     app.MapPost("/api/cases/{id:guid}/timeline", async (Guid id, AddTimelineEventCommand body, AddTimelineEventHandler handler, CancellationToken ct) =>
     {
@@ -143,21 +211,24 @@ try
             return Results.ValidationProblem(errors);
         }
     })
-    .WithName("AddTimelineEvent");
+    .WithName("AddTimelineEvent")
+    .RequireAuthorization("ApiAuth");
 
     app.MapGet("/api/cases/{id:guid}/timeline", async (Guid id, GetTimelineHandler handler, CancellationToken ct) =>
     {
         var events = await handler.Handle(new GetTimelineQuery(id), ct);
         return Results.Ok(events);
     })
-    .WithName("GetTimeline");
+    .WithName("GetTimeline")
+    .RequireAuthorization("ApiAuth");
 
     app.MapGet("/api/case-definitions", async (ListCaseDefinitionsHandler handler, CancellationToken ct) =>
     {
         var result = await handler.Handle(new ListCaseDefinitionsQuery(), ct);
         return Results.Ok(result);
     })
-    .WithName("ListCaseDefinitions");
+    .WithName("ListCaseDefinitions")
+    .RequireAuthorization("ApiAuth");
 
     app.MapPost("/api/case-definitions", async (CreateCaseDefinitionCommand command, CreateCaseDefinitionHandler handler, CancellationToken ct) =>
     {
@@ -168,13 +239,14 @@ try
         }
         catch (ValidationException ex)
         {
-            var errors = ex.Errors
+            var err = ex.Errors
                 .GroupBy(f => f.PropertyName)
                 .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
-            return Results.ValidationProblem(errors);
+            return Results.ValidationProblem(err);
         }
     })
-    .WithName("CreateCaseDefinition");
+    .WithName("CreateCaseDefinition")
+    .RequireAuthorization("ApiAuth");
 
     app.Run();
 

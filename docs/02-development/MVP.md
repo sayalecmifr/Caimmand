@@ -208,6 +208,8 @@ El MVP se concentra deliberadamente en la gestion, trazabilidad y gobernanza del
 | Marketplace de agentes | No existe en el MVP. La gestion de agentes externos es responsabilidad de plataformas externas. |
 | Analitica avanzada | El MVP incluye observabilidad basica. La analitica avanzada, tableros y reportes complejos quedan para futuras iteraciones. |
 
+> **Login settings-based (interim)**: existe un esquema de auth basico por `appsettings.json` (cookie UI + `X-API-Key` para la API), documentado en `ADR-002-Settings-Based-Auth.md`. No reemplaza la auth de produccion (Keycloak sigue fuera del MVP); la precede como puerta de entrada minima mientras tanto. Autorizacion por rol queda pendiente para una iteracion futura.
+
 ## Roles y permisos MVP
 
 El MVP define tres roles operativos. El rol describe la funcion dentro del producto; el permiso describe que capacidades estan habilitadas para cada rol.

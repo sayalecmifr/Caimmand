@@ -30,10 +30,26 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- **UI**: `http://localhost:8080/` (Dashboard, listado y detalle de casos).
-- **Command API**: `http://localhost:8080/api/...`. Ver [`docs/03-implementation/api-examples.md`](docs/03-implementation/api-examples.md) por el contrato completo con ejemplos `curl` y n8n.
+- **UI**: `http://localhost:8080/` (Dashboard, listado y detalle de casos). Requiere login (ver credenciales default abajo).
+- **Command API**: `http://localhost:8080/api/...`. Requiere header `X-API-Key: <key>`. Ver [`docs/03-implementation/api-examples.md`](docs/03-implementation/api-examples.md) por el contrato completo con ejemplos `curl` y n8n.
 
 PostgreSQL levanta con healthcheck; al arrancar, la Web aplica migraciones de EF Core y siembra la `CaseDefinition` `APPOINTMENT_REMINDER` si la tabla esta vacia.
+
+### Auth (login basico por settings)
+
+El PoC tiene un esquema de auth **interim** (cookie UI + `X-API-Key` API) documentado en [`docs/01-architecture/ADR/ADR-002-Settings-Based-Auth.md`](docs/01-architecture/ADR/ADR-002-Settings-Based-Auth.md). No es produccion-grade; Keycloak queda pendiente para fases futuras.
+
+Credenciales default en `src/Caimmand.Web/appsettings.json` (seccion `Auth`):
+
+| Usuario      | Contrasenia    | Rol        |
+|--------------|----------------|------------|
+| `operador`   | `operador123`  | Operador   |
+| `supervisor` | `super123`     | Supervisor |
+| `gerente`    | `gerente123`   | Gerente    |
+
+API key default: `caimmand-poc-key` (override via env var `AUTH_API_KEY` en Docker Compose, o `Auth__ApiKey` por entorno).
+
+**Importante**: sobreescribir `Auth:ApiKey`, `Auth:Users[].Password` y el connection string en todo deployment que no sea dev local del autor. Las passwords estan en plaintext en `appsettings.json` simplificado por la naturaleza del PoC; hashearlas queda pendiente para una iteracion futura.
 
 ### Opcion B - Local (dev / debugger)
 

@@ -33,6 +33,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Default: "Host=${POSTGRES_HOST};Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Auth__ApiKey: "${AUTH_API_KEY}"
     restart: unless-stopped
 
 volumes:

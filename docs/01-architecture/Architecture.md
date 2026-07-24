@@ -427,6 +427,8 @@ El ciclo de vida del Caso describe los estados por los que un Caso puede transit
 
 La Command API es el unico punto de entrada autorizado para interactuar con Caimmand. Todo sistema externo, automatizacion y usuario opera exclusivamente a traves de ella. No se permite acceso directo a la base de datos.
 
+> **Auth interim**: existe un esquema de auth basico por settings (cookie UI + `X-API-Key` para la API) documentado en `ADR/ADR-002-Settings-Based-Auth.md`. No sustituye al modulo `Identity` previsto (ver ADR-001) ni a Keycloak; los precede como puerta de entrada minima del PoC. Autorizacion por rol queda para una iteracion futura.
+
 ### Principios de la Command API
 
 | Principio                         | Descripcion                                                  |

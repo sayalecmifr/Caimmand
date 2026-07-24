@@ -11,10 +11,10 @@ Contrato de la **Command API** expuesto por `Caimmand.Web` (Minimal APIs bajo `/
 
 - Base URL: `http://localhost:8080` cuando se corre via **Docker Compose** (default). Si se corre localmente con `dotnet run` (Opcion B del README), usar `https://localhost:5001`.
 - Content-Type: `application/json` en todos los `POST`/`PATCH`.
-- Auth: en el PoC la API es abierta. En futuras fases se incorporara Keycloak (Out of Scope del PoC).
+- Auth: la Command API exige el header `X-API-Key: <key>` (ver ADR-002). El valor default es `caimmand-poc-key` (override via env var `Auth__ApiKey` en Docker Compose). La UI Blazor requiere login por cookie. Keycloak sigue fuera del MVP.
 - Fechas: UTC en todas las responses (`DateTime.UtcNow`).
 
-> Todos los ejemplos `curl` y n8n de este documento asumen Docker Compose (`http://localhost:8080`). Si corres local, sustitui el host/puerto por `https://localhost:5001`.
+> Todos los ejemplos `curl` y n8n de este documento asumen Docker Compose (`http://localhost:8080`). Si corres local, sustitui el host/puerto por `https://localhost:5001`. Todos los endpoints `/api/...` requieren header `X-API-Key: caimmand-poc-key` (o el valor definido en `.env`).
 
 ---
 
@@ -67,6 +67,7 @@ Crea un nuevo Caso. La `CaseDefinition` referenciada debe existir y estar activa
 
 ```bash
 curl -X POST http://localhost:8080/api/cases \
+  -H "X-API-Key: caimmand-poc-key" \
   -H "Content-Type: application/json" \
   -d '{
     "caseDefinitionCode": "APPOINTMENT_REMINDER",
@@ -87,7 +88,7 @@ curl -X POST http://localhost:8080/api/cases \
 - Method: `POST`
 - URL: `http://localhost:8080/api/cases`
 - Authentication: none (PoC)
-- Headers: `Content-Type: application/json`
+- Headers: `X-API-Key: caimmand-poc-key`, `Content-Type: application/json`
 - Body (JSON): el objeto de arriba. Tipicamente se mapea desde el output del nodo que leyo del HIS.
 
 ---
@@ -105,13 +106,13 @@ Lista casos filtrando por estado, `CaseDefinitionCode` y/o `externalId` (idempot
 **curl**
 
 ```bash
-curl "http://localhost:8080/api/cases?status=Suspendido&caseDefinitionCode=APPOINTMENT_REMINDER"
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases?status=Suspendido&caseDefinitionCode=APPOINTMENT_REMINDER"
 ```
 
 Lookup por `externalId` (tipico para idempotencia en n8n):
 
 ```bash
-curl "http://localhost:8080/api/cases?caseDefinitionCode=APPOINTMENT_REMINDER&externalId=APT-2026-0718-001"
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases?caseDefinitionCode=APPOINTMENT_REMINDER&externalId=APT-2026-0718-001"
 ```
 
 Si response es `[]` → no existe caso para ese turno, se puede crear. Si trae un elemento → skip.
@@ -141,7 +142,7 @@ Detalle de un caso. Devuelve `404` si no existe.
 **curl**
 
 ```bash
-curl http://localhost:8080/api/cases/52abb42f-1234-5678-9abc-def012345678
+curl -H "X-API-Key: caimmand-poc-key" http://localhost:8080/api/cases/52abb42f-1234-5678-9abc-def012345678
 ```
 
 **Response 200 OK**
@@ -188,6 +189,7 @@ Cambia el estado del caso segun la maquina de transiciones definida en `Domain/E
 
 ```bash
 curl -X PATCH http://localhost:8080/api/cases/52abb42f-.../status \
+  -H "X-API-Key: caimmand-poc-key" \
   -H "Content-Type: application/json" \
   -d '{ "newStatus": "Finalizado" }'
 ```
@@ -251,6 +253,7 @@ Agrega un evento a la timeline del caso. El handler calcula automaticamente el s
 
 ```bash
 curl -X POST http://localhost:8080/api/cases/52abb42f-.../timeline \
+  -H "X-API-Key: caimmand-poc-key" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "Aviso",
@@ -282,7 +285,7 @@ Devuelve los eventos ordenados por `Sequence` descendente.
 **curl**
 
 ```bash
-curl http://localhost:8080/api/cases/52abb42f-.../timeline
+curl -H "X-API-Key: caimmand-poc-key" http://localhost:8080/api/cases/52abb42f-.../timeline
 ```
 
 **Response 200 OK**
@@ -319,7 +322,7 @@ Lista las definiciones de caso registradas, ordenadas por `Name`. Incluye activa
 **curl**
 
 ```bash
-curl http://localhost:8080/api/case-definitions
+curl -H "X-API-Key: caimmand-poc-key" http://localhost:8080/api/case-definitions
 ```
 
 **Response 200 OK**
@@ -390,6 +393,7 @@ La nueva definicion arranca siempre con `IsActive = true` (en el PoC no hay una 
 
 ```bash
 curl -X POST http://localhost:8080/api/case-definitions \
+  -H "X-API-Key: caimmand-poc-key" \
   -H "Content-Type: application/json" \
   -d '{
     "code": "MEDICAL_AUDIT",
@@ -473,6 +477,7 @@ Referencia operativa para configurar los workflows de n8n contra la Command API 
 
 - **`sourceSystem` ≠ `Origin`**: el HIS es el sistema de origen del caso (`sourceSystem: "HIS"`); n8n es el transporte/orquestador y firma como `Origin: "n8n"` en los eventos de timeline que reporta.
 - **Operator oversight**: n8n nunca mueve un caso a `Cancelado`. n8n si finaliza (`Finalizado`) cuando el paciente confirma explicitamente.
+- **Auth API**: todo HTTP Request Node de n8n debe llevar el header `X-API-Key: caimmand-poc-key` (o el valor definido en `.env` → `AUTH_API_KEY`). Sin ese header, todos los endpoints `/api/...` devuelven `401 Unauthorized`. Ver ADR-002.
 - **Idempotencia convencional**: `Context.externalId` es la **clave Caimmand-side** para idempotencia. n8n mapea el id que el HIS le dé (turnoId, appointmentId, codigo de turno, etc.) a esa clave al crear el caso. Si el HIS no provee id estable, skip idempotencia: POST directo y aceptar duplicados en re-runs (ver 6.6).
 - **Toda accion relevante genera TimelineEvent**: envio, reenvio, confirmacion, error. Si hiciste algo, postealo.
 - **Content legible y especifico**: nunca "OK" ni "fallo". Incluir proveedor, MSID, phone mascarado, texto de error crudo.
@@ -548,7 +553,7 @@ El `externalId` es la **clave Caimmand-side** (convencion fija en el handler). n
 n8n HTTP Request Node:
 - Method: `POST`
 - URL: `http://localhost:8080/api/cases`
-- Headers: `Content-Type: application/json`
+- Headers: `X-API-Key: caimmand-poc-key`, `Content-Type: application/json`
 
 Body Branch A (con idempotency key):
 
@@ -630,7 +635,7 @@ Leer del Static Data (o equivalente) el `caseId` asociado al `externalId` del tu
 n8n HTTP Request Node:
 - Method: `PATCH`
 - URL: `http://localhost:8080/api/cases/{{ $json.caseId }}/status`
-- Headers: `Content-Type: application/json`
+- Headers: `X-API-Key: caimmand-poc-key`, `Content-Type: application/json`
 - Body:
 
 ```json
@@ -646,7 +651,7 @@ nodo del proveedor (Twilio, Meta WhatsApp, etc.). Fuera del alcance de esta guia
 n8n HTTP Request Node:
 - Method: `POST`
 - URL: `http://localhost:8080/api/cases/{{ $json.caseId }}/timeline`
-- Headers: `Content-Type: application/json`
+- Headers: `X-API-Key: caimmand-poc-key`, `Content-Type: application/json`
 - Body:
 
 ```json
@@ -727,7 +732,7 @@ Si no → lookup por phone, requiriendo traer casos activos y matchear contra `C
 n8n HTTP Request Node:
 - Method: `POST`
 - URL: `http://localhost:8080/api/cases/{{ $json.caseId }}/timeline`
-- Headers: `Content-Type: application/json`
+- Headers: `X-API-Key: caimmand-poc-key`, `Content-Type: application/json`
 - Body:
 
 ```json
