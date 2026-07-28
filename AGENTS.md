@@ -140,5 +140,7 @@ Checklist antes de tocar código:
 
 ## Inconsistencias encontradas
 
-- **Extensión de la solución**: `PoC-Implementation-Plan.md` describe `src/Caimmand.sln`; en el repositorio existe `src/Caimmand.slnx`.
-- **Acceso a DbContext desde Application**: `PoC-Implementation-Plan.md` afirma *"Application consume CaimmandDbContext directamente"* y *"Sin Repository Pattern... sin interfaces"*, pero el código define `ICaimmandDbContext` en `Caimmand.Domain` y los handlers consumen esa interfaz.
+> Las inconsistencias documentadas originalmente entre `docs/` y el código fueron resueltas el 2026-07-28 corrigiendo la documentación. Se conservan a continuación como registro histórico:
+
+- **Extensión de la solución** (resuelto): `PoC-Implementation-Plan.md` describía `src/Caimmand.sln`; corregido a `src/Caimmand.slnx`, extensión real del repositorio.
+- **Acceso a DbContext desde Application** (resuelto): `PoC-Implementation-Plan.md` afirmaba *"Application consume CaimmandDbContext directamente"* y *"Sin Repository Pattern... sin interfaces"*. Corregido: el PoC usa `ICaimmandDbContext` (definida en `Caimmand.Domain`), los handlers consumen esa interfaz, y `CaimmandDbContext` (Infrastructure) la implementa. EF Core sigue siendo la unica abstraccion de persistencia; no se introducen interfaces de repositorio adicionales.

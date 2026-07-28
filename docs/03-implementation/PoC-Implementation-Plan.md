@@ -117,7 +117,7 @@ El documento de arquitectura define la Command API como el unico punto de entrad
 
 ```
 src/
-    Caimmand.sln
+    Caimmand.slnx
     Caimmand.Web/
     Caimmand.Application/
     Caimmand.Domain/
@@ -131,9 +131,9 @@ tests/
 | Proyecto | Responsabilidad |
 |----------|-----------------|
 | Caimmand.Web | Host del proceso unico. Contiene Blazor Server (pantallas), Minimal APIs (endpoints), configuracion de inyeccion de dependencias y pipeline de ASP.NET Core. Es el punto de entrada del proceso. |
-| Caimmand.Application | Casos de uso y servicios de aplicacion. Orquesta el dominio, expone los comandos y consultas que Blazor y las APIs consumen. Consume directamente CaimmandDbContext para persistencia. |
-| Caimmand.Domain | Entidades, Value Objects y reglas de negocio del dominio. No depende de EF Core ni de ninguna tecnologia. No define contratos de persistencia. |
-| Caimmand.Infrastructure | Implementacion de persistencia con EF Core: CaimmandDbContext, configuraciones de entidades, migraciones y cadena de conexion a PostgreSQL. Mapea las entidades del dominio, sin implementar interfaces de repositorio. |
+| Caimmand.Application | Casos de uso y servicios de aplicacion. Orquesta el dominio, expone los comandos y consultas que Blazor y las APIs consumen. Consume la interfaz `ICaimmandDbContext` (definida en `Caimmand.Domain`) para persistencia. EF Core sigue siendo la unica abstraccion de persistencia; no se introduce Repository Pattern. |
+| Caimmand.Domain | Entidades, Value Objects y reglas de negocio del dominio. No depende de EF Core ni de ninguna tecnologia. Expone el contrato de persistencia `ICaimmandDbContext` (DbSets de Case, CaseDefinition y TimelineEvent + SaveChangesAsync) para mantener a Application independiente de Infrastructure. |
+| Caimmand.Infrastructure | Implementacion de persistencia con EF Core: `CaimmandDbContext : DbContext, ICaimmandDbContext`, configuraciones de entidades, migraciones y cadena de conexion a PostgreSQL. Mapea las entidades del dominio implementando `ICaimmandDbContext`. No se introducen interfaces de repositorio adicionales. |
 | Caimmand.Tests | Tests unitarios y de integracion. Cubre el dominio y los casos de uso de Application. |
 
 ### Reglas de dependencia
@@ -191,6 +191,15 @@ Caimmand.Application/
 ## Modelo de datos inicial
 
 El PoC persiste unicamente tres entidades. Las demas entidades del dominio (Task, Participant, Audit, Case Definition avanzada con reglas por definicion) se incorporaran posteriormente.
+
+### Degradaciones del modelo en el PoC
+
+Respecto del modelo completo definido en `DomainModel.md` y `Architecture.md`, el PoC aplica las siguientes degradaciones, a recuperar en la **Iteracion B**:
+
+- **Case** no modela `Prioridad` ni `SLA` heredados de la Case Definition como columnas propias; esa informacion, si se necesita, vive en `Context` (JSONB). La relacion a `Participante` tampoco se persiste (no hay entidad Participant).
+- **CaseDefinition** no expone `Estados configurables` por definicion; las transiciones validas son las globales de `Domain/Enums/CaseStatusTransitions.cs`.
+- **TimelineEvent** guarda `Origin` como `string` (no como referencia estructurada a Participant).
+- **Transiciones de estado**: cada transicion genera unicamente un `TimelineEvent` (Tipo: Inicio de operacion, Suspension, Reactivacion, Finalizacion, Cancelacion). El `Registro de Auditoria` (entidad Audit) se incorpora en la Iteracion B; hasta entonces, la Timeline sustituye la trazabilidad tecnica.
 
 ### Entidades persistidas
 
@@ -263,30 +272,40 @@ Las siguientes entidades estan definidas en el DomainModel pero no se implementa
 
 ## API minima
 
-La Command API se materializa como Minimal APIs de ASP.NET Core. En el PoC no se disena una API enterprise: se definen los endpoints estrictamente necesarios para validar el flujo.
+La Command API se materializa como Minimal APIs de ASP.NET Core. En el PoC no se disena una API enterprise: se definen los endpoints estrictamente necesarios para validar el flujo. Todos los endpoints `/api/*` requieren el header `X-API-Key` (policy `ApiAuth`); ver `ADR/ADR-002-Settings-Based-Auth.md`.
+
+### Autenticacion (interim, ADR-002)
+
+El PoC incluye un esquema de auth basico por settings, previo al modulo `Identity` previsto:
+
+- UI Blazor protegida por cookie auth. Usuarios definidos en `appsettings.json` (seccion `Auth:Users[]`), passwords en plaintext, roles como claims `Operador`/`Supervisor`/`Gerente`. Sesion 8h con sliding expiration.
+- Command API `/api/*` protegida por header `X-API-Key` validado contra `Auth:ApiKey` (default `caimmand-poc-key`, override via `Auth__ApiKey`).
+- Politica `ApiAuth` unifica ambos esquemas.
+- Endpoints de cuenta: `POST /account/login` (form: username/password/returnUrl), `POST /account/logout`. Pantalla `/login` Blazor con `EmptyLayout` y `[AllowAnonymous]`.
+- Roles sin autorizacion fina en esta iteracion: ningun endpoint ni pagina se restringe por rol. Queda para la Iteracion B (ver `ADR-002`).
 
 ### Endpoints de Cases
 
 | Metodo | Ruta | Descripcion |
 |--------|------|-------------|
-| POST | /cases | Crea un caso asociando una Case Definition activa. Body: CaseDefinitionCode, Title, Context, SourceSystem. |
-| GET | /cases | Lista casos con filtros basicos (status, caseDefinitionCode, sourceSystem). |
-| GET | /cases/{id} | Devuelve el detalle completo del caso. |
-| PATCH | /cases/{id}/status | Cambia el estado del caso. Body: NewStatus. |
+| POST | /api/cases | Crea un caso asociando una Case Definition activa. Body: CaseDefinitionCode, Title, Context, SourceSystem. |
+| GET | /api/cases | Lista casos con filtros basicos (status, caseDefinitionCode, sourceSystem, externalId). |
+| GET | /api/cases/{id} | Devuelve el detalle completo del caso. |
+| PATCH | /api/cases/{id}/status | Cambia el estado del caso. Body: NewStatus. |
 
 ### Endpoints de Timeline
 
 | Metodo | Ruta | Descripcion |
 |--------|------|-------------|
-| POST | /cases/{id}/timeline | Anade un evento a la timeline del caso. Body: Type, Origin, Content. |
-| GET | /cases/{id}/timeline | Devuelve la cronologia de eventos del caso. |
+| POST | /api/cases/{id}/timeline | Anade un evento a la timeline del caso. Body: Type, Origin, Content. |
+| GET | /api/cases/{id}/timeline | Devuelve la cronologia de eventos del caso. |
 
 ### Endpoints de Case Definitions
 
 | Metodo | Ruta | Descripcion |
 |--------|------|-------------|
-| POST | /case-definitions | Crea una Case Definition (para sembrar APPOINTMENT_REMINDER). |
-| GET | /case-definitions | Lista las Case Definitions registradas. |
+| POST | /api/case-definitions | Crea una Case Definition (para sembrar APPOINTMENT_REMINDER). |
+| GET | /api/case-definitions | Lista las Case Definitions registradas. |
 
 ### Notas
 
@@ -296,7 +315,7 @@ La Command API se materializa como Minimal APIs de ASP.NET Core. En el PoC no se
 
 ## Pantallas del PoC
 
-El PoC incluye tres pantallas. No se disenan pantallas administrativas (gestion de usuarios, configuracion avanzada de Case Definitions, etc.).
+El PoC incluye cuatro pantallas. No se disenan pantallas administrativas (gestion de usuarios, configuracion avanzada de Case Definitions, etc.).
 
 ### Dashboard
 
@@ -305,7 +324,7 @@ Pantalla inicial de la aplicacion.
 | Elemento | Descripcion |
 |----------|-------------|
 | Conteos por estado | Numero de casos en cada estado (Creado, En curso, Suspendido, Finalizado, Cancelado). |
-| Requieren intervencion | Cantidad de casos que necesitan una accion humana. Principal KPI operativo para operadores y supervisores. |
+| Requieren intervencion | Cantidad de casos que necesitan una accion humana. Principal KPI operativo para operadores y supervisores. En el PoC se materializa como los casos en estado `Suspendido` (ver `UX-Guidelines.md`). KPIs de "tareas vencidas" llegan en la Iteracion B (requiere entidad Task). |
 | Conteo total | Numero total de casos. |
 | Acceso al listado | Boton o enlace al Listado de Casos. |
 
@@ -331,6 +350,18 @@ Pantalla principal del operador para gobernar un caso.
 | Timeline | Cronologia de eventos ordenada por Sequence (orden logico) y OccurredAt, en orden descendente. |
 | Acciones | Cambiar estado (botones para transitar entre estados admisibles). |
 | Agregar evento | Formulario simple para anadir un evento a la timeline. |
+
+### Login
+
+Pantalla de acceso (interim, ADR-002).
+
+| Elemento | Descripcion |
+|----------|-------------|
+| Marca | Logo/nombre Caimmand arriba. |
+| Campos | Usuario y contrasena. |
+| Accion | Boton "Ingresar" que invoca `POST /account/login`. |
+| Layout | Vacio (sin sidebar/navbar), usa `EmptyLayout`. |
+| Redireccion | Tras login exitoso redirige a `returnUrl` o al Dashboard. |
 
 ## Flujo funcional
 
@@ -377,6 +408,7 @@ El trabajo se organiza en cuatro fases. Cada fase entrega valor demostrable.
 - Crear las migraciones iniciales para Case, CaseDefinition y TimelineEvent.
 - Implementar la entidad Case y sus comandos (Create, List, GetDetail, UpdateStatus).
 - Exponer los endpoints de Cases como Minimal APIs.
+- Registrar auth interim (cookie UI + ApiKey + endpoints `/account` + pantalla `Login.razor`) segun ADR-002.
 - Sembrar la Case Definition APPOINTMENT_REMINDER via script o endpoint.
 
 ### Fase 2: Timeline y operacion
@@ -426,7 +458,7 @@ El trabajo se organiza en cuatro fases. Cada fase entrega valor demostrable.
 | Vertical Slice | Organizacion por feature (Cases, Timeline, CaseDefinitions) dentro de cada proyecto. |
 | Application compartida | Blazor y Minimal APIs consumen los mismos handlers de Application. DRY. |
 | Capas simples sin Clean Architecture compleja | Cuatro proyectos con dependencias unidimensionales. Sin interfaces en todas partes, sin Use Cases abstractos. Lo justo para el PoC. |
-| Sin Repository Pattern | Application consume CaimmandDbContext directamente. EF Core es la abstraccion de persistencia suficiente para el PoC. Sin interfaces de repositorio ni implementaciones concretas. |
+| Sin Repository Pattern | Application consume `ICaimmandDbContext` (contrato definido en Domain). EF Core es la abstraccion de persistencia suficiente para el PoC. No se introducen interfaces de repositorio adicionales, solo el contrato de DbContext en el dominio para mantener Application independiente de Infrastructure. |
 
 ## Fuera de alcance
 

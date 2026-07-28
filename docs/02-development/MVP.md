@@ -51,7 +51,7 @@ Los objetivos del MVP son medibles y estan orientados a validar la propuesta de 
 | Gestion operativa | Permitir a operadores gestionar casos asignados y completar tareas. | Tareas completadas por operadores. |
 | Trazabilidad | Mantener historial completo de eventos funcionales y registro tecnico de auditoria. | Trazabilidad completa por caso. |
 | Supervision | Permitir a supervisores visualizar el estado de los casos, reasignar y escalar. | Casos reasignados y escalados. |
-| Auditoria | Permitir reconstruir el ciclo completo de un caso, cambio por cambio. | Auditoria completa y inmutable por caso. |
+| Auditoria | Permitir reconstruir el ciclo completo de un caso, cambio por cambio. | Auditoria completa y inmutable por caso. (Iteracion B; el PoC la sustituye con la Timeline.) |
 | Gobernanza | Permitir al Gerente administrar Case Definitions y usuarios. | Case Definitions activas configuradas. |
 
 ## Alcance funcional
@@ -98,6 +98,8 @@ Registro y visualizacion cronologica de los eventos funcionales del caso. La Tim
 
 ### Distincion Timeline vs Audit
 
+> **Iteracion B (Audit)**: la entidad Registro de Auditoria se incorpora en la Iteracion B. Mientras tanto, el PoC cubre la trazabilidad funcional con la Timeline; la trazabilidad tecnica inmutable (Audit) queda pendiente.
+
 El MVP distingue dos conceptos que no deben confundirse: la Timeline (funcional, visible) y la Auditoria (tecnica, inmutable).
 
 | Dimension | Timeline (Eventos funcionales) | Audit (Registro tecnico) |
@@ -109,6 +111,8 @@ El MVP distingue dos conceptos que no deben confundirse: la Timeline (funcional,
 | Proposito | Comprender el caso y que falta por hacer. | Reconstruir quien hizo que cambio y cuando. |
 
 ### Tasks
+
+> **Iteracion B (no incluida en el PoC actual)**: la entidad Task y sus operaciones se incorporan en la Iteracion B. El PoC actual no persiste Tasks; el trabajo pendiente se modela como eventos libres en la Timeline (ver `PoC-Implementation-Plan.md`).
 
 Registro de acciones pendientes asociadas a un caso. La Task representa trabajo concreto que alguien debe realizar, pero no es un nodo de workflow ni contiene logica de flujo.
 
@@ -122,6 +126,8 @@ Registro de acciones pendientes asociadas a un caso. La Task representa trabajo 
 Aclaracion: Task NO representa un workflow BPM. Caimmand no ejecuta tareas ni orquesta su secuencia. La ejecucion real del trabajo ocurre fuera de Caimmand; lo que queda en Caimmand es el registro de la tarea, su estado, su asignatario y su resultado.
 
 ### Participants
+
+> **Iteracion B (no incluida en el PoC actual)**: la entidad Participant se incorpora en la Iteracion B. El PoC actual no persiste Participantes; el origen de un evento queda como `string Origin` en `TimelineEvent`.
 
 Modelado de los actores que intervienen en un caso, sin importar su naturaleza. El Participante unifica en una sola entidad a personas externas, usuarios internos, sistemas externos y agentes IA.
 
@@ -198,6 +204,8 @@ Caimmand no ejecuta el envio del SMS, no decide la cantidad de reintentos y no g
 
 El MVP se concentra deliberadamente en la gestion, trazabilidad y gobernanza del caso. Las siguientes capacidades quedan fuera del alcance de la primera version.
 
+> **Aclaracion PoC vs MVP**: el MVP contempla Tasks, Participants y Audit como capacidades funcionales (ver seccion Alcance funcional), pero el **PoC actual** no las implementa; se incorporan en la **Iteracion B** (ver `PoC-Implementation-Plan.md`). El PoC cubre Cases, Case Definitions, Timeline y Dashboard.
+
 | Capacidad | Razon |
 |-----------|-------|
 | Disenador visual de procesos | Caimmand no disena procesos; los opera. El diseno pertenece a herramientas externas de modelado. |
@@ -211,6 +219,8 @@ El MVP se concentra deliberadamente en la gestion, trazabilidad y gobernanza del
 > **Login settings-based (interim)**: existe un esquema de auth basico por `appsettings.json` (cookie UI + `X-API-Key` para la API), documentado en `ADR-002-Settings-Based-Auth.md`. No reemplaza la auth de produccion (Keycloak sigue fuera del MVP); la precede como puerta de entrada minima mientras tanto. Autorizacion por rol queda pendiente para una iteracion futura.
 
 ## Roles y permisos MVP
+
+> **Iteracion B (autorizacion por rol)**: en el PoC actual todos los roles autenticados acceden a las mismas pantallas y endpoints; no hay restricciones por rol (ver `ADR-002-Settings-Based-Auth.md`). Las restricciones descritas abajo son el objetivo del MVP y se materializan en la Iteracion B.
 
 El MVP define tres roles operativos. El rol describe la funcion dentro del producto; el permiso describe que capacidades estan habilitadas para cada rol.
 

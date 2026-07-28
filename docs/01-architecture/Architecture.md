@@ -419,7 +419,7 @@ El ciclo de vida del Caso describe los estados por los que un Caso puede transit
 ### Notas
 
 - No existen transiciones desde los estados terminales `Finalizado` ni `Cancelado`.
-- Toda transicion genera un Evento en la Timeline del Caso.
+- Toda transicion genera un Evento en la Timeline del Caso. En el PoC (sin entidad Audit) la Timeline tambien cubre la trazabilidad tecnica; el Registro de Auditoria (entidad Audit) se incorpora en la Iteracion B, momento en que cada transicion generara ademas un Registro de Auditoria asociado al Caso.
 - Las transiciones estan sujetas a las reglas de gobierno definidas en Caimmand, no a la logica de los workflows externos.
 - Este conjunto base es una propuesta para el MVP. Estados adicionales (por ejemplo, `En revision`, `Escalado`) podran incorporarse en futuras iteraciones.
 
@@ -456,6 +456,8 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 | Finalizar Caso           | Marca el Caso como completado.                     | Supervisor / Sistema          |
 | Consultar Caso           | Devuelve el estado y contexto de un Caso.         | Operador / Supervisor / Gerente / Automatizacion |
 
+> **Implementacion en el PoC**: Suspender, Reactivar, Cancelar, Finalizar y Cambiar estado se unifican en un unico endpoint `PATCH /api/cases/{id}/status` con `NewStatus`, validado contra `Domain/Enums/CaseStatusTransitions.cs`. Registrar Caso se materializa como `POST /api/cases` y Consultar Caso como `GET /api/cases/{id}`.
+
 #### Comandos sobre Tareas
 
 | Comando                  | Descripcion                                          | Origen permitido              |
@@ -490,6 +492,8 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 | Activar Case Definition  | Marca una definicion como activa para crear Casos. | Gerente                       |
 | Desactivar Case Definition | Marca una definicion como inactiva.                  | Gerente                       |
 | Consultar Case Definitions | Devuelve las definiciones registradas, filtrables por estado o categoria. | Operador / Supervisor / Gerente / Automatizacion |
+
+> **Implementacion en el PoC**: solo se exponen `POST /api/case-definitions` (Registrar) y `GET /api/case-definitions` (Consultar). Actualizar, Activar y Desactivar (incluida la activacion/inactivacion via `IsActive`) llegan en la Iteracion B; hoy una Case Definition nace con `IsActive = true`.
 
 #### Comandos de intervencion
 

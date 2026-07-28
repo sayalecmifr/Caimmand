@@ -76,7 +76,7 @@ Tipificar la operacion. Definir el tipo de Caso que se gobierna, sus valores por
 | SLA por defecto         | Tiempo maximo objetivo de resolucion, si aplica.                             |
 | Prioridad por defecto   | Prioridad asignada por defecto a los Casos de esta definicion.              |
 | Presentacion            | Color o icono para la interfaz de operacion.                                 |
-| Estados configurables   | Conjunto de estados admisibles para los Casos de esta definicion (ver seccion 5). |
+| Estados configurables   | Conjunto de estados admisibles para los Casos de esta definicion (ver seccion 5). Iteracion B: en el PoC no se persiste; las transiciones validas son las globales de `Domain/Enums/CaseStatusTransitions.cs`. |
 
 **Relaciones**
 
@@ -108,8 +108,8 @@ Representar la instancia concreta de trabajo que se supervisa, controla y gobier
 | Sistema de Origen   | Sistema externo que creo el Caso.                                          |
 | Estado actual       | Estado funcional dentro del ciclo de vida del Caso.                       |
 | Contexto            | Informacion relevante del Caso necesaria para su operacion.                |
-| Prioridad           | Prioridad operativa (por defecto heredada de la Case Definition).          |
-| SLA                 | Tiempo maximo objetivo de resolucion (por defecto heredado).               |
+| Prioridad           | Prioridad operativa (por defecto heredada de la Case Definition). No persistida como columna en el PoC; si se necesita, vive en `Context` (JSONB). |
+| SLA                 | Tiempo maximo objetivo de resolucion (por defecto heredado). No persistido como columna en el PoC. |
 | Fechas relevantes    | Creacion, ultima modificacion, cierre.                                     |
 
 **Relaciones**
@@ -142,7 +142,7 @@ Registrar un acontecimiento funcional relevante dentro del ciclo de vida de un C
 | Identidad | Identificador unico del Evento dentro del Caso.                  |
 | Caso      | Caso al que pertenece.                                           |
 | Tipo      | Tipo de acontecimiento funcional (creacion, aviso, confirmacion, cancelacion, etc.). |
-| Origen    | Participante o sistema que genero el Evento.                     |
+| Origen    | Participante o sistema que genero el Evento. En el PoC se persiste como `string Origin` (no como referencia estructurada a Participant); la referencia a Participant llega en la Iteracion B. |
 | Momento   | Marca temporal de ocurrencia.                                    |
 | Contenido | Informacion relevante asociada al Evento.                        |
 
@@ -345,13 +345,15 @@ stateDiagram-v2
 
 Los estados base son el punto de partida del MVP, pero no son una camisa de fuerza. Cada Case Definition puede definir su propio conjunto admisible de estados y las transiciones validas, siempre que respete la existencia de al menos un estado inicial, uno o varios estados terminales y la inmutabilidad de los estados terminales.
 
+> **Implementacion en el PoC**: esta configuracion por Case Definition aun no se aplica. El PoC usa las transiciones globales definidas en `Domain/Enums/CaseStatusTransitions.cs` para todos los Casos, sin distincion por Case Definition. La configuracion por definicion llega en la Iteracion B.
+
 Una Case Definition puede, por ejemplo, anadir estados intermedios adicionales como `En revision`, `Escalado` o `Bloqueado`, sin que esto afecte al nucleo del dominio. Las reglas de transicionentre estados viven en Caimmand, nunca en los workflows externos.
 
 ### Reglas comunes
 
 - No existen transiciones desde los estados terminales `Finalizado` ni `Cancelado`.
 - Toda transicion genera un Evento en la Timeline del Caso.
-- Toda transicion genera un Registro de Auditoria asociado al Caso.
+- Toda transicion genera un Registro de Auditoria asociado al Caso. En el PoC (sin entidad Audit) esta regla se cumple parcialmente: cada transicion genera el Evento en la Timeline; el Registro de Auditoria se incorpora en la Iteracion B.
 - Las transiciones se rigen por las reglas de gobierno definidas en Caimmand, no por la logica de los workflows externos.
 
 ## Participantes
