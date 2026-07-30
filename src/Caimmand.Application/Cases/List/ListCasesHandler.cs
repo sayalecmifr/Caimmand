@@ -1,5 +1,6 @@
 using Caimmand.Domain;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Caimmand.Application.Cases.List;
 
@@ -23,8 +24,14 @@ public sealed class ListCasesHandler
         if (!string.IsNullOrEmpty(query.ExternalId))
         {
             cases = cases
-                .Where(c => c.Context.RootElement.TryGetProperty("externalId", out var ext)
-                            && ext.GetString() == query.ExternalId)
+                .Where(c =>
+                {
+                    if (!c.Context.RootElement.TryGetProperty("externalId", out var ext))
+                        return false;
+                    // Safely obtain textual representation for string or number JSON values
+                    var extValue = ext.ValueKind == JsonValueKind.String ? ext.GetString() : ext.ToString();
+                    return extValue == query.ExternalId;
+                })
                 .ToList();
         }
 
