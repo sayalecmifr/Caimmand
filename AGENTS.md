@@ -130,8 +130,8 @@ Checklist antes de tocar código:
 - IA autónoma tomando decisiones críticas
 - Marketplace de agentes
 - Analítica avanzada, tableros y reportes complejos
-- Backlog Iteracion C: indice GIN sobre `Context.externalId` + filtro en SQL
 - Backlog Iteracion D: `IdempotencyContextKey` configurable por `CaseDefinition`
+- ~~Backlog Iteracion C: indice GIN sobre `Context.externalId` + filtro en SQL~~ — **IMPLEMENTADO en B.4 (2026-08-12)**: indice GIN `IX_Cases_Context_GIN` + `EF.Functions.JsonContains` via `IJsonQueryAdapter` (Npgsql prod / InMemory tests). Paginacion offset/limit + filtros por fecha tambien agregados en B.4.
 
 ## Restricciones (qué NO hacer)
 
@@ -171,6 +171,17 @@ Checklist antes de tocar código:
 - **B.3 (AllowedStatuses + Auth por rol)**: `CaseDefinition.AllowedStatuses` JSONB + value converter EF Core; `CaseStatusTransitions.IsValid(from, to, allowed)`; `InvalidStatusTransitionException`; `IAuthorizationContext` + policies `RequireGerente`/`RequireSupervisorGerente` en Program.cs; checks de rol en handlers (CaseDefinition Create/Update/SetActive + Audit Get = `Gerente`; Tasks/assign = `Supervisor`/`Gerente`; Tasks/start/complete = `Operador`/`Supervisor`/`Api`; Tasks/cancel = `Operador`/`Supervisor`); `<AuthorizeView Roles="...">` en Blazor; pagina `/admin/case-definitions`.
 
 Tests: 129 casos en `tests/Caimmand.Tests/` (build limpio, 0 errores).
+
+## Iteracion B.4 — registro historico
+
+> Implementada el 2026-08-12. Paginacion + filtros por fecha en listado de Casos + avance de filtro `externalId` a SQL.
+
+- **Paginacion offset/limit**: `ListCasesQuery` extendida con `Page`/`PageSize` (default 50). `ListCasesResult` envelope `{ Items, Total, Page, PageSize, TotalPages }`. `ListCasesHandler` reescrito con `CountAsync` + `Skip/Take` en SQL. Endpoint `GET /api/cases` extendido con `page`/`pageSize` params (breaking: response ahora es envelope, no array plano).
+- **Filtros por fecha**: `createdFrom`/`createdTo`/`updatedFrom`/`updatedTo` (query params + UI). Presets rapidos en Blazor: Hoy / 7d / 30d.
+- **ExternalId a SQL (Iteracion C adelantada)**: `IJsonQueryAdapter` (Domain) + `NpgsqlJsonQueryAdapter` (Infrastructure, usa `EF.Functions.JsonContains`) + `InMemoryJsonQueryAdapter` (Tests, fallback runtime). Migracion `IteracionB4_ExternalIdIndex` con `CREATE INDEX IX_Cases_Context_GIN ON "Cases" USING GIN ("Context")`.
+- **UI Blazor `Cases.razor`**: filtros de fecha (`<input type="date">` x4), select de presets, select de page size (20/50/100), navegacion `« Primera / ‹ Anterior / Página X de Y / Siguiente › / Última »`.
+
+Tests: 138 casos en `tests/Caimmand.Tests/` (build limpio, 0 errores).
 
 ## Inconsistencias encontradas
 

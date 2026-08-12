@@ -63,6 +63,7 @@ try
     });
 
     builder.Services.AddCaimmandPersistence(builder.Configuration);
+    builder.Services.AddScoped<Caimmand.Domain.IJsonQueryAdapter, Caimmand.Infrastructure.NpgsqlJsonQueryAdapter>();
     builder.Services.AddCascadingAuthenticationState();
 
     var authOptions = builder.Configuration
@@ -197,14 +198,23 @@ try
     .WithName("CreateCase")
     .RequireAuthorization("ApiAuth");
 
-    app.MapGet("/api/cases", async (string? status, string? caseDefinitionCode, string? externalId, ListCasesHandler handler, CancellationToken ct) =>
+    app.MapGet("/api/cases", async (
+        string? status, string? caseDefinitionCode, string? externalId,
+        DateTime? createdFrom, DateTime? createdTo,
+        DateTime? updatedFrom, DateTime? updatedTo,
+        int? page, int? pageSize,
+        ListCasesHandler handler, CancellationToken ct) =>
     {
         CaseStatus? parsedStatus = null;
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<CaseStatus>(status, ignoreCase: true, out var s))
         {
             parsedStatus = s;
         }
-        var result = await handler.Handle(new ListCasesQuery(parsedStatus, caseDefinitionCode, externalId), ct);
+        var query = new ListCasesQuery(
+            parsedStatus, caseDefinitionCode, externalId,
+            createdFrom, createdTo, updatedFrom, updatedTo,
+            page ?? 1, pageSize ?? 50);
+        var result = await handler.Handle(query, ct);
         return Results.Ok(result);
     })
     .WithName("ListCases")

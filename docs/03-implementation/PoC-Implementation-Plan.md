@@ -337,7 +337,7 @@ Pantalla de operacion diaria.
 | Tabla de casos | Columnas: Id, Titulo, Case Definition, Estado, Sistema origen, Creado. |
 | Filtros basicos | Filtro por estado y por Case Definition. |
 | Acceso al detalle | Click en una fila abre el Detalle del Caso. |
-| Paginacion simple | Paginacion basica del lado del servidor. |
+| Paginación simple | Paginación básica del lado del servidor. > **IMPLEMENTADA (B.4, 2026-08-12)**: offset/limit con `Page`/`PageSize` (default 50) + filtros por fecha (`createdFrom`/`createdTo`/`updatedFrom`/`updatedTo`) + presets (Hoy/7d/30d). Response envelope `{ items, total, page, pageSize, totalPages }`. |
 
 ### Detalle del Caso
 

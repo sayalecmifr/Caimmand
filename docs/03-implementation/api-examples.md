@@ -95,18 +95,30 @@ curl -X POST http://localhost:8080/api/cases \
 
 ### 1.2 GET /api/cases
 
-Lista casos filtrando por estado, `CaseDefinitionCode` y/o `externalId` (idempotencia por turno).
+Lista casos con filtros opcionales y paginación del lado del servidor. La response es un **envelope** con `items`, `total`, `page`, `pageSize` y `totalPages` (no es un array plano).
 
 **Query params**
 
 - `status` (opcional): uno de `Creado`, `EnCurso`, `Suspendido`, `Finalizado`, `Cancelado` (case-insensitive).
 - `caseDefinitionCode` (opcional): el codigo exacto de la definicion.
-- `externalId` (opcional): filtra por `Context.externalId` (lookup en JSONB en memoria, ver 6.6). Identifica la unidad de trabajo dentro del `sourceSystem` (ej. id del turno dentro del HIS). No confundir con `sourceSystem` mismo.
+- `externalId` (opcional): filtra por `Context.externalId` en SQL via `EF.Functions.JsonContains` + indice GIN (ver 6.6). Identifica la unidad de trabajo dentro del `sourceSystem`. No confundir con `sourceSystem` mismo.
+- `createdFrom` (opcional, ISO 8601 UTC): filtra casos con `CreatedAt >= createdFrom`.
+- `createdTo` (opcional, ISO 8601 UTC): filtra casos con `CreatedAt <= createdTo`.
+- `updatedFrom` (opcional, ISO 8601 UTC): filtra casos con `UpdatedAt >= updatedFrom`.
+- `updatedTo` (opcional, ISO 6087 UTC): filtra casos con `UpdatedAt <= updatedTo`.
+- `page` (opcional, default 1): numero de pagina (1-based).
+- `pageSize` (opcional, default 50): cantidad de items por pagina.
 
 **curl**
 
 ```bash
-curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases?status=Suspendido&caseDefinitionCode=APPOINTMENT_REMINDER"
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases?status=Suspendido&caseDefinitionCode=APPOINTMENT_REMINDER&page=1&pageSize=50"
+```
+
+Con filtro de fecha (casos creados en los ultimos 7 dias):
+
+```bash
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases?createdFrom=2026-08-05T00:00:00Z&page=1&pageSize=50"
 ```
 
 Lookup por `externalId` (tipico para idempotencia en n8n):
@@ -115,23 +127,31 @@ Lookup por `externalId` (tipico para idempotencia en n8n):
 curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases?caseDefinitionCode=APPOINTMENT_REMINDER&externalId=APT-2026-0718-001"
 ```
 
-Si response es `[]` → no existe caso para ese turno, se puede crear. Si trae un elemento → skip.
+Si response tiene `total: 0` → no existe caso para ese turno, se puede crear. Si trae un elemento → skip.
 
 **Response 200 OK**
 
 ```json
-[
-  {
-    "id": "52abb42f-...",
-    "title": "Recordatorio del turno de Juan Perez",
-    "caseDefinitionCode": "APPOINTMENT_REMINDER",
-    "caseDefinitionName": "Recordatorio de Turno",
-    "status": "Suspendido",
-    "sourceSystem": "HIS",
-    "createdAt": "2026-07-21T14:30:00.000Z"
-  }
-]
+{
+  "items": [
+    {
+      "id": "52abb42f-...",
+      "title": "Recordatorio del turno de Juan Perez",
+      "caseDefinitionCode": "APPOINTMENT_REMINDER",
+      "caseDefinitionName": "Recordatorio de Turno",
+      "status": "Suspendido",
+      "sourceSystem": "HIS",
+      "createdAt": "2026-07-21T14:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
+}
 ```
+
+> **Breaking change (B.4, 2026-08-12)**: la response solia ser un array plano `[...]`. Ahora es un envelope `{ items, total, page, pageSize, totalPages }`. Los clientes n8n existentes deben adaptarse (no hay workflows en produccion). El filter por `externalId` antes era runtime en memoria; ahora es SQL via `EF.Functions.JsonContains` con indice GIN sobre `Cases.Context`.
 
 ---
 
@@ -770,7 +790,7 @@ El endpoint `GET /api/cases` soporta el query param `externalId` que filtra por 
 
 **Detalle de implementacion (PoC)**: el filtro se aplica en memoria despues de traer los casos del `CaseDefinitionCode` dado. Funciona bien en volumen PoC (decenas de casos por definicion). Si escala:
 
-- **Backlog (Iteracion C)**: empujar el filtro a SQL con un indice GIN sobre `Context` y `EF.Functions.JsonContains` (Npgsql). Hasta entonces, el costo es traer los N casos del `CaseDefinitionCode` + filtrar en runtime — aceptable.
+- **Iteracion C — IMPLEMENTADA 2026-08-12 (B.4)**: el filtro `externalId` ahora se resuelve en SQL via `EF.Functions.JsonContains` con indice GIN sobre `Cases.Context` (`IX_Cases_Context_GIN`). El handler usa `IJsonQueryAdapter` (Npgsql en produccion, `InMemoryJsonQueryAdapter` en tests) para abstraer la implementacion. No hay mas filtro runtime en memoria para este campo.
 
 - **Backlog (Iteracion D)**: hacer la **idempotency key configurable** por `CaseDefinition` (columna `IdempotencyContextKey`, default `"externalId"`) para que el handler lea el nombre de la clave de la definicion en vez de hardcodear `externalId`. Permite que `MEDICAL_AUDIT` use `auditId`, `INVOICE_FOLLOWUP` use `invoiceId`, etc. sin tocar el handler ni recompilar. Migracion EF Core + 1 test + doc update.
 
