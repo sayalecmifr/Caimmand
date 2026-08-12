@@ -101,7 +101,7 @@ Lista casos con filtros opcionales y paginación del lado del servidor. La respo
 
 - `status` (opcional): uno de `Creado`, `EnCurso`, `Suspendido`, `Finalizado`, `Cancelado` (case-insensitive).
 - `caseDefinitionCode` (opcional): el codigo exacto de la definicion.
-- `externalId` (opcional): filtra por `Context.externalId` en SQL via `EF.Functions.JsonContains` + indice GIN (ver 6.6). Identifica la unidad de trabajo dentro del `sourceSystem`. No confundir con `sourceSystem` mismo.
+- `externalId` (opcional): filtra por `Context.externalId` en SQL via operador `->>` + indice funcional (ver 6.6). Identifica la unidad de trabajo dentro del `sourceSystem`. No confundir con `sourceSystem` mismo. Type-agnostic: matchea tanto si externalId se guardo como string como numero (PostgreSQL `->>` extrae el valor como text).
 - `createdFrom` (opcional, ISO 8601 UTC): filtra casos con `CreatedAt >= createdFrom`.
 - `createdTo` (opcional, ISO 8601 UTC): filtra casos con `CreatedAt <= createdTo`.
 - `updatedFrom` (opcional, ISO 8601 UTC): filtra casos con `UpdatedAt >= updatedFrom`.
@@ -151,7 +151,7 @@ Si response tiene `total: 0` → no existe caso para ese turno, se puede crear. 
 }
 ```
 
-> **Breaking change (B.4, 2026-08-12)**: la response solia ser un array plano `[...]`. Ahora es un envelope `{ items, total, page, pageSize, totalPages }`. Los clientes n8n existentes deben adaptarse (no hay workflows en produccion). El filter por `externalId` antes era runtime en memoria; ahora es SQL via `EF.Functions.JsonContains` con indice GIN sobre `Cases.Context`.
+> **Breaking change (B.4, 2026-08-12)**: la response solia ser un array plano `[...]`. Ahora es un envelope `{ items, total, page, pageSize, totalPages }`. Los clientes n8n existentes deben adaptarse (no hay workflows en produccion). El filter por `externalId` antes era runtime en memoria; ahora es SQL via operador `->>` con indice funcional `IX_Cases_Context_ExternalId` sobre `Cases.Context` (B.5: reemplaza al GIN anterior — mas liviano y type-agnostic).
 
 ---
 
@@ -790,7 +790,7 @@ El endpoint `GET /api/cases` soporta el query param `externalId` que filtra por 
 
 **Detalle de implementacion (PoC)**: el filtro se aplica en memoria despues de traer los casos del `CaseDefinitionCode` dado. Funciona bien en volumen PoC (decenas de casos por definicion). Si escala:
 
-- **Iteracion C — IMPLEMENTADA 2026-08-12 (B.4)**: el filtro `externalId` ahora se resuelve en SQL via `EF.Functions.JsonContains` con indice GIN sobre `Cases.Context` (`IX_Cases_Context_GIN`). El handler usa `IJsonQueryAdapter` (Npgsql en produccion, `InMemoryJsonQueryAdapter` en tests) para abstraer la implementacion. No hay mas filtro runtime en memoria para este campo.
+- **Iteracion C — IMPLEMENTADA 2026-08-12 (B.4+B.5)**: el filtro `externalId` ahora se resuelve en SQL via operador `->>` (text extraction) con indice funcional `IX_Cases_Context_ExternalId` sobre `Cases.Context`. El handler usa `IJsonQueryAdapter` (Npgsql en produccion, `InMemoryJsonQueryAdapter` en tests) para abstraer la implementacion. Type-agnostic: matchea externalId guardado como string o numero. B.5 reemplazo el GIN original (`IX_Cases_Context_GIN`) por un indice funcional mas liviano y adecuado para la query `->>`.
 
 - **Backlog (Iteracion D)**: hacer la **idempotency key configurable** por `CaseDefinition` (columna `IdempotencyContextKey`, default `"externalId"`) para que el handler lea el nombre de la clave de la definicion en vez de hardcodear `externalId`. Permite que `MEDICAL_AUDIT` use `auditId`, `INVOICE_FOLLOWUP` use `invoiceId`, etc. sin tocar el handler ni recompilar. Migracion EF Core + 1 test + doc update.
 
