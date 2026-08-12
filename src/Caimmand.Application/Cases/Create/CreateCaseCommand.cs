@@ -6,4 +6,6 @@ public sealed record CreateCaseCommand(
     string CaseDefinitionCode,
     string Title,
     string SourceSystem,
-    JsonElement Context);
+    JsonElement Context,
+    string? Priority = null,
+    TimeSpan? Sla = null);

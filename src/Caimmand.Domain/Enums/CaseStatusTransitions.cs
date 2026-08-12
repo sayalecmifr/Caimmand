@@ -14,6 +14,32 @@ public static class CaseStatusTransitions
     public static bool IsValid(CaseStatus from, CaseStatus to) =>
         Valid.TryGetValue(from, out var targets) && targets.Contains(to);
 
+    public static bool IsValid(CaseStatus from, CaseStatus to, IReadOnlyCollection<CaseStatus>? allowed)
+    {
+        if (!IsValid(from, to))
+        {
+            return false;
+        }
+
+        if (allowed is null || allowed.Count == 0)
+        {
+            return true;
+        }
+
+        return allowed.Contains(to);
+    }
+
     public static IReadOnlyCollection<CaseStatus> GetValidTargets(CaseStatus from) =>
         Valid.TryGetValue(from, out var targets) ? targets : Array.Empty<CaseStatus>();
+
+    public static IReadOnlyCollection<CaseStatus> GetValidTargets(CaseStatus from, IReadOnlyCollection<CaseStatus>? allowed)
+    {
+        var global = GetValidTargets(from);
+        if (allowed is null || allowed.Count == 0)
+        {
+            return global;
+        }
+
+        return global.Intersect(allowed).ToArray();
+    }
 }

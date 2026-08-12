@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Caimmand.Application.Cases.GetDetail;
 using Caimmand.Domain.Entities;
+using Task = System.Threading.Tasks.Task;
 using Caimmand.Domain.Enums;
 using Caimmand.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;

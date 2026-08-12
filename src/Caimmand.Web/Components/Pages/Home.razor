@@ -4,17 +4,25 @@
 @inject GetDashboardKpisHandler DashboardHandler
 @inject NavigationManager Nav
 
-<PageTitle>Caimmand PoC · Dashboard</PageTitle>
+<PageTitle>Caimmand · Dashboard</PageTitle>
 
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h1 class="display-6 fw-semibold mb-0">Dashboard</h1>
-            <p class="text-muted mb-0">Estado operativo de los casos gobernados por Caimmand.</p>
+    <div class="mb-4">
+        <h1 class="display-6 fw-semibold mb-0">Dashboard</h1>
+        <p class="text-muted mb-0">Estado operativo de los casos gobernados por Caimmand.</p>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <button class="btn btn-outline-primary w-100" @onclick="GoToCases">
+                Ver casos
+            </button>
         </div>
-        <button class="btn btn-outline-primary" @onclick="GoToCases">
-            Ver casos
-        </button>
+        <div class="col-md-6">
+            <button class="btn btn-outline-primary w-100" @onclick="GoToTasks">
+                Ver tareas
+            </button>
+        </div>
     </div>
 
     @if (Kpis is null)
@@ -66,10 +74,18 @@
                     </div>
                 </div>
             </div>
+            <div class="col-md-3">
+                <div class="card text-center shadow-sm h-100 border-danger">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Tareas Vencidas</h6>
+                        <p class="display-4 fw-semibold mb-0 text-danger">@Kpis.TasksOverdue</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="mt-5 text-muted small">
-            <span class="fw-semibold">Caimmand PoC · v0.1</span>
+            <span class="fw-semibold">Caimmand · v0.1</span>
             <span class="mx-2">·</span>
             <span>Caimmand no ejecuta el negocio; hace visible, gobernable y operable su ejecucion.</span>
         </div>
@@ -85,4 +101,5 @@
     }
 
     private void GoToCases() => Nav.NavigateTo("/cases");
+    private void GoToTasks() => Nav.NavigateTo("/tasks");
 }

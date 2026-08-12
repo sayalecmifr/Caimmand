@@ -1,9 +1,14 @@
+using System.Text.Json;
+using Caimmand.Application.Audit;
+using Caimmand.Application.Authorization;
 using Caimmand.Domain;
 using Caimmand.Domain.Entities;
 using Caimmand.Domain.Enums;
+using Caimmand.Domain.Exceptions;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.EntityFrameworkCore;
+using Task = System.Threading.Tasks.Task;
 
 namespace Caimmand.Application.Cases.UpdateStatus;
 
@@ -11,11 +16,19 @@ public sealed class UpdateCaseStatusHandler
 {
     private readonly ICaimmandDbContext _db;
     private readonly IValidator<UpdateCaseStatusCommand> _validator;
+    private readonly IAuditRecorder _audit;
+    private readonly IAuthorizationContext _authorization;
 
-    public UpdateCaseStatusHandler(ICaimmandDbContext db, IValidator<UpdateCaseStatusCommand> validator)
+    public UpdateCaseStatusHandler(
+        ICaimmandDbContext db,
+        IValidator<UpdateCaseStatusCommand> validator,
+        IAuditRecorder audit,
+        IAuthorizationContext authorization)
     {
         _db = db;
         _validator = validator;
+        _audit = audit;
+        _authorization = authorization;
     }
 
     public async Task<UpdateCaseStatusResponse> Handle(UpdateCaseStatusCommand command, CancellationToken ct)
@@ -35,14 +48,17 @@ public sealed class UpdateCaseStatusHandler
             });
         }
 
-        if (!CaseStatusTransitions.IsValid(entity.Status, command.NewStatus))
+        var definition = await _db.CaseDefinitions
+            .FirstOrDefaultAsync(d => d.Code == entity.CaseDefinitionCode, ct);
+
+        var allowedStatuses = definition?.AllowedStatuses;
+
+        if (!CaseStatusTransitions.IsValid(entity.Status, command.NewStatus, allowedStatuses))
         {
-            throw new ValidationException(new[]
-            {
-                new ValidationFailure(nameof(command.NewStatus),
-                    $"Transicion no valida: {entity.Status} -> {command.NewStatus}.")
-            });
+            throw new InvalidStatusTransitionException(entity.Status, command.NewStatus);
         }
+
+        RequireRoleForTransition(command.NewStatus);
 
         var oldStatus = entity.Status;
         entity.Status = command.NewStatus;
@@ -53,19 +69,57 @@ public sealed class UpdateCaseStatusHandler
             .Select(e => (long?)e.Sequence)
             .MaxAsync(ct) ?? 0;
 
+        var actingAs = _authorization.GetCurrentRole() ?? "Operador";
+
         _db.TimelineEvents.Add(new TimelineEvent
         {
             CaseId = entity.Id,
             Sequence = maxSequence + 1,
             Type = GetTransitionType(oldStatus, command.NewStatus),
-            Origin = "Operador",
+            Origin = actingAs,
             Content = $"Estado cambiado de {StatusLabel(oldStatus)} a {StatusLabel(command.NewStatus)}.",
             OccurredAt = DateTime.UtcNow
         });
 
+        var change = JsonSerializer.Serialize(new
+        {
+            from = oldStatus.ToString(),
+            to = command.NewStatus.ToString()
+        });
+
+        await _audit.RecordAsync(
+            entity.Id,
+            AuditOperation.StatusChange,
+            actingAs,
+            change,
+            contextRef: null,
+            ct);
+
         await _db.SaveChangesAsync(ct);
 
         return new UpdateCaseStatusResponse(entity.Id, entity.Status.ToString(), entity.UpdatedAt);
+    }
+
+    private void RequireRoleForTransition(CaseStatus newStatus)
+    {
+        if (newStatus == CaseStatus.Suspendido || newStatus == CaseStatus.Cancelado)
+        {
+            if (!_authorization.IsInRole(Roles.Supervisor, Roles.Gerente))
+            {
+                throw new UnauthorizedOperationException(
+                    $"{Roles.Supervisor} o {Roles.Gerente}",
+                    _authorization.GetCurrentRole() ?? "(ninguno)");
+            }
+        }
+        else if (newStatus == CaseStatus.Finalizado)
+        {
+            if (!_authorization.IsInRole(Roles.Supervisor, Roles.Gerente, Roles.Api))
+            {
+                throw new UnauthorizedOperationException(
+                    $"{Roles.Supervisor}, {Roles.Gerente} o sistema externo ({Roles.Api})",
+                    _authorization.GetCurrentRole() ?? "(ninguno)");
+            }
+        }
     }
 
     private static string GetTransitionType(CaseStatus from, CaseStatus to) => (from, to) switch

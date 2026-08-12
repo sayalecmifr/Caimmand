@@ -194,12 +194,12 @@ El PoC persiste unicamente tres entidades. Las demas entidades del dominio (Task
 
 ### Degradaciones del modelo en el PoC
 
-Respecto del modelo completo definido en `DomainModel.md` y `Architecture.md`, el PoC aplica las siguientes degradaciones, a recuperar en la **Iteracion B**:
+> **Iteracion B — IMPLEMENTADA 2026-08-11**: las degradaciones listadas abajo fueron revertidas en la Iteracion B. `Case.Priority` y `Case.Sla` ahora son columnas propias (con herencia desde `CaseDefinition` al crear el Caso). `CaseDefinition.AllowedStatuses` se persiste como JSONB y la validacion de transiciones se intersecta con el set de la definicion. `TimelineEvent.ParticipantId?` vincula eventos al `Participant` estructurado (mantiene `string Origin` como snapshot). La entidad `Audit` esta persistida (`AuditRecord`); toda mutacion genera un Registro de Auditoria via `IAuditRecorder`. Los detalles se documentan en `docs/03-implementation/api-examples.md` (secciones Participants, Tasks y Audit) y en `docs/02-development/MVP.md` (notas "Iteracion B — IMPLEMENTADA 2026-08-11"). Las transiciones se respetan a continuacion como registro historico de las decisiones del PoC original.
 
 - **Case** no modela `Prioridad` ni `SLA` heredados de la Case Definition como columnas propias; esa informacion, si se necesita, vive en `Context` (JSONB). La relacion a `Participante` tampoco se persiste (no hay entidad Participant).
 - **CaseDefinition** no expone `Estados configurables` por definicion; las transiciones validas son las globales de `Domain/Enums/CaseStatusTransitions.cs`.
 - **TimelineEvent** guarda `Origin` como `string` (no como referencia estructurada a Participant).
-- **Transiciones de estado**: cada transicion genera unicamente un `TimelineEvent` (Tipo: Inicio de operacion, Suspension, Reactivacion, Finalizacion, Cancelacion). El `Registro de Auditoria` (entidad Audit) se incorpora en la Iteracion B; hasta entonces, la Timeline sustituye la trazabilidad tecnica.
+- **Transiciones de estado**: cada transicion genera unicamente un `TimelineEvent` (Tipo: Inicio de operacion, Suspension, Reactivacion, Finalizacion, Cancelacion). > **Iteracion B — IMPLEMENTADA 2026-08-11**: toda mutacion genera ademas un `AuditRecord` asociado al Caso via `IAuditRecorder`. La Timeline sigue siendo la vista funcional; el Audit es la trazabilidad tecnica inmutable.
 
 ### Entidades persistidas
 
@@ -282,7 +282,7 @@ El PoC incluye un esquema de auth basico por settings, previo al modulo `Identit
 - Command API `/api/*` protegida por header `X-API-Key` validado contra `Auth:ApiKey` (default `caimmand-poc-key`, override via `Auth__ApiKey`).
 - Politica `ApiAuth` unifica ambos esquemas.
 - Endpoints de cuenta: `POST /account/login` (form: username/password/returnUrl), `POST /account/logout`. Pantalla `/login` Blazor con `EmptyLayout` y `[AllowAnonymous]`.
-- Roles sin autorizacion fina en esta iteracion: ningun endpoint ni pagina se restringe por rol. Queda para la Iteracion B (ver `ADR-002`).
+- Roles sin autorizacion fina en esta iteracion: ningun endpoint ni pagina se restringe por rol. > **Iteracion B — IMPLEMENTADA 2026-08-11**: las policies `RequireGerente` y `RequireSupervisorGerente` y los checks `IAuthorizationContext.IsInRole(...)` en handlers estan activos. Ver ADR-002 para el detalle del mapeo operacion → rol.
 
 ### Endpoints de Cases
 
@@ -324,7 +324,7 @@ Pantalla inicial de la aplicacion.
 | Elemento | Descripcion |
 |----------|-------------|
 | Conteos por estado | Numero de casos en cada estado (Creado, En curso, Suspendido, Finalizado, Cancelado). |
-| Requieren intervencion | Cantidad de casos que necesitan una accion humana. Principal KPI operativo para operadores y supervisores. En el PoC se materializa como los casos en estado `Suspendido` (ver `UX-Guidelines.md`). KPIs de "tareas vencidas" llegan en la Iteracion B (requiere entidad Task). |
+| Requieren intervencion | Cantidad de casos que necesitan una accion humana. Principal KPI operativo para operadores y supervisores. En el PoC se materializa como los casos en estado `Suspendido` (ver `UX-Guidelines.md`). > **Iteracion B — IMPLEMENTADA 2026-08-11**: el dashboard agrega un KPI separado `TasksOverdue` (cantidad de Tasks en estado `Pendiente`/`EnProgreso` con `DueAt < now`); `RequierenIntervencion` sigue siendo Casos Suspendidos por decision de producto (ver `UX-Guidelines.md:475`). |
 | Conteo total | Numero total de casos. |
 | Acceso al listado | Boton o enlace al Listado de Casos. |
 

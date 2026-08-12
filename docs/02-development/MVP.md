@@ -98,7 +98,7 @@ Registro y visualizacion cronologica de los eventos funcionales del caso. La Tim
 
 ### Distincion Timeline vs Audit
 
-> **Iteracion B (Audit)**: la entidad Registro de Auditoria se incorpora en la Iteracion B. Mientras tanto, el PoC cubre la trazabilidad funcional con la Timeline; la trazabilidad tecnica inmutable (Audit) queda pendiente.
+> **Iteracion B (Audit) — IMPLEMENTADA 2026-08-11**: la entidad Registro de Auditoria (`AuditRecord`) esta incorporada. Toda mutacion relevante (creacion de Caso, cambio de estado, alta de evento de Timeline, registro de Participante, operaciones sobre Tasks) genera un `AuditRecord` con `Operation`, `Origin`, `OccurredAt`, `ChangeJson` y `ContextRef`. Exposicion via `GET /api/cases/{id}/audit` (solo rol `Gerente`). La Timeline (funcional, visible al operador) sigue coexistiendo con la Auditoria (tecnica, inmutable, acceso Gerente).
 
 El MVP distingue dos conceptos que no deben confundirse: la Timeline (funcional, visible) y la Auditoria (tecnica, inmutable).
 
@@ -112,7 +112,7 @@ El MVP distingue dos conceptos que no deben confundirse: la Timeline (funcional,
 
 ### Tasks
 
-> **Iteracion B (no incluida en el PoC actual)**: la entidad Task y sus operaciones se incorporan en la Iteracion B. El PoC actual no persiste Tasks; el trabajo pendiente se modela como eventos libres en la Timeline (ver `PoC-Implementation-Plan.md`).
+> **Iteracion B (Tasks) — IMPLEMENTADA 2026-08-11**: la entidad `Task` y sus operaciones (`Create`, `Assign`, `Start`, `Complete`, `Cancel`, `List`, `GetDetail`) estan incorporadas. Transiciones: `Pendiente → EnProgreso → Completada`, `Pendiente|EnProgreso → Cancelada`. Cada mutation genera `TimelineEvent` + `AuditRecord`. Endpoint `/api/cases/{id}/tasks[/{tid}]` + paginas Blazor `/tasks` (listado global) y seccionTareas en `CaseView.razor`.
 
 Registro de acciones pendientes asociadas a un caso. La Task representa trabajo concreto que alguien debe realizar, pero no es un nodo de workflow ni contiene logica de flujo.
 
@@ -127,7 +127,7 @@ Aclaracion: Task NO representa un workflow BPM. Caimmand no ejecuta tareas ni or
 
 ### Participants
 
-> **Iteracion B (no incluida en el PoC actual)**: la entidad Participant se incorpora en la Iteracion B. El PoC actual no persiste Participantes; el origen de un evento queda como `string Origin` en `TimelineEvent`.
+> **Iteracion B (Participants) — IMPLEMENTADA 2026-08-11**: la entidad `Participant` + join `CaseParticipant` (con `Rol`) estan incorporadas. Tipos: `PersonaExterna`, `UsuarioInterno`, `SistemaExterno`, `AgenteIA`. Endpoints `POST /api/cases/{id}/participants` (reuso por `ExternalId` + idempotencia por case-rol) y `GET /api/cases/{id}/participants`. UI: seccion Participantes en `CaseView.razor`. Los `TimelineEvent` con `Origin` snapshot mantienen el nombre del participante, y opcionalmente `ParticipantId` lo vincula al registro estructurado.
 
 Modelado de los actores que intervienen en un caso, sin importar su naturaleza. El Participante unifica en una sola entidad a personas externas, usuarios internos, sistemas externos y agentes IA.
 
@@ -204,7 +204,7 @@ Caimmand no ejecuta el envio del SMS, no decide la cantidad de reintentos y no g
 
 El MVP se concentra deliberadamente en la gestion, trazabilidad y gobernanza del caso. Las siguientes capacidades quedan fuera del alcance de la primera version.
 
-> **Aclaracion PoC vs MVP**: el MVP contempla Tasks, Participants y Audit como capacidades funcionales (ver seccion Alcance funcional), pero el **PoC actual** no las implementa; se incorporan en la **Iteracion B** (ver `PoC-Implementation-Plan.md`). El PoC cubre Cases, Case Definitions, Timeline y Dashboard.
+> **Aclaracion PoC vs MVP**: el MVP contempla Tasks, Participants y Audit como capacidades funcionales (ver seccion Alcance funcional). Inicialemente estas entidades estaban fuera del PoC y reservadas para la **Iteracion B** (ver `PoC-Implementation-Plan.md`); la Iteracion B fue completada el 2026-08-11 (ver `api-examples.md`, secciones "Participants", "Tasks" y "Audit").
 
 | Capacidad | Razon |
 |-----------|-------|
@@ -220,7 +220,7 @@ El MVP se concentra deliberadamente en la gestion, trazabilidad y gobernanza del
 
 ## Roles y permisos MVP
 
-> **Iteracion B (autorizacion por rol)**: en el PoC actual todos los roles autenticados acceden a las mismas pantallas y endpoints; no hay restricciones por rol (ver `ADR-002-Settings-Based-Auth.md`). Las restricciones descritas abajo son el objetivo del MVP y se materializan en la Iteracion B.
+> **Iteracion B (autorizacion por rol) — IMPLEMENTADA 2026-08-11**: las restricciones por rol estan activas. Los endpoints de Case Definitions (Create/Update/SetActive) y Audit (Get) requieren rol `Gerente`. La transicion a `Suspendido`/`Cancelado` requiere `Supervisor`/`Gerente` (handler). `Tasks/assign` requiere `Supervisor`/`Gerente`; `Tasks/start`/`complete` requieren `Operador`/`Supervisor`/`Api`; `Tasks/cancel` requiere `Operador`/`Supervisor`. Ver `ADR-002-Settings-Based-Auth.md` para el detalle del mapeo operacion → rol permitido.
 
 El MVP define tres roles operativos. El rol describe la funcion dentro del producto; el permiso describe que capacidades estan habilitadas para cada rol.
 

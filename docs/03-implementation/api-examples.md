@@ -11,7 +11,7 @@ Contrato de la **Command API** expuesto por `Caimmand.Web` (Minimal APIs bajo `/
 
 - Base URL: `http://localhost:8080` cuando se corre via **Docker Compose** (default). Si se corre localmente con `dotnet run` (Opcion B del README), usar `https://localhost:5001`.
 - Content-Type: `application/json` en todos los `POST`/`PATCH`.
-- Auth: la Command API exige el header `X-API-Key: <key>` (ver ADR-002). El valor default es `caimmand-poc-key` (override via env var `Auth__ApiKey` en Docker Compose). La UI Blazor requiere login por cookie. Keycloak sigue fuera del MVP.
+- Auth: la Command API exige el header `X-API-Key: <key>` (ver ADR-002). El valor default es `caimmand-poc-key` (override via env var `Auth__ApiKey` en Docker Compose). La UI Blazor requiere login por cookie. Keycloak sigue fuera del MVP. Iteracion B — IMPLEMENTADA 2026-08-11: algunos endpoints requieren roles adicionales (ver seccion "8. Autorizacion por rol" abajo y `ADR-002-Settings-Based-Auth.md`).
 - Fechas: UTC en todas las responses (`DateTime.UtcNow`).
 
 > Todos los ejemplos `curl` y n8n de este documento asumen Docker Compose (`http://localhost:8080`). Si corres local, sustitui el host/puerto por `https://localhost:5001`. Todos los endpoints `/api/...` requieren header `X-API-Key: caimmand-poc-key` (o el valor definido en `.env`).
@@ -420,7 +420,7 @@ Referencia del flujo completo que un sistema externo (HIS + n8n) ejecuta contra 
 6. El **operador** abre el detalle del caso en Blazor (`/cases/{id}`) y ve toda la timeline. Puede agregar manualmente eventos (`Type = Llamado`, `Type = Comentario`) desde la UI si intervino por telefono u otra va.
 7. El caso avanza de estado: `Creado → EnCurso` (al primer evento n8n que arranca operacion; en el PoC se hace manual o desde UI), y finalmente `→ Finalizado` o `→ Cancelado` por el operador, lo cual siembra eventos tipados `Finalizacion` / `Cancelacion`.
 
-> Nota: en la iteracion actual las "tareas" (`Enviar SMS`, `Esperar confirmacion`) se modelan como eventos de timeline libres. La **Iteracion B** (Task + Participant entities) las convertira en entidades estructuradas con su propio estado, desbloqueando KPIs de "tareas vencidas" en el Dashboard.
+> Nota: Iteracion B — IMPLEMENTADA 2026-08-11. Las "tareas" (`Enviar SMS`, `Esperar confirmacion`) ahora son entidades estructuradas (`Task`) con su propio estado (`Pendiente` / `EnProgreso` / `Completada` / `Cancelada`) y `Result` al cerrarse. Los KPIs de "tareas vencidas" estan activos en el Dashboard (`TasksOverdue`). Ver seccion "7. Tasks" abajo.
 
 ---
 
@@ -804,3 +804,242 @@ Si se pierde el mapping, se puede reconstruir desde `GET /api/cases` filtrando c
 3. **n8n solo mueve a `Finalizado` tras `Confirmacion` explicita** del paciente via webhook.
 4. **Toda falla reportable genera TimelineEvent `Error` + `Suspendido`**. Asi el caso cae en "Requieren Intervencion" del Dashboard.
 5. **Content siempre legible y especifico**. Evitar "OK" o "fallo". Incluir proveedor, MSID, phone mascarado, texto de error crudo — el operador tiene que entender el caso en `<10s`.
+
+---
+
+## 7. Tasks (Iteracion B — IMPLEMENTADA 2026-08-11)
+
+Las Tasks representan trabajo concreto asociado a un Caso. No son un motor BPM: Caimmand registra la Tarea, su estado, su asignatario y su resultado; la ejecucion real ocurre fuera de Caimmand (HIS, n8n, agente IA, operador humano).
+
+### 7.1 POST /api/cases/{id}/tasks
+
+Crea una Task en estado `Pendiente` asociada al Caso. Opcionalmente la asigna a un `Participant` pr-creado. Cada `Create` genera un `TimelineEvent` (Tipo `Tarea creada` o `Asignacion`) y un `AuditRecord` (`TaskCreated`).
+
+**Request body**
+
+```json
+{
+  "type": "enviar_sms",
+  "assigneeId": null,
+  "dueAt": "2026-08-13T10:00:00.000Z"
+}
+```
+
+- `type` (string, obligatorio): tipo de accion (ej. `enviar_sms`, `confirmar_turno`, `reprogramar`).
+- `assigneeId` (Guid?, opcional): id de `Participant` asignado. Si se envia, el handler valida que exista.
+- `dueAt` (DateTime?, opcional): vencimiento. Cuando esta seteado y vence, la tarea se cuenta en el KPI `TasksOverdue` del Dashboard.
+
+**Response 201 Created**
+
+```json
+{
+  "id": "33333333-...",
+  "caseId": "11111111-...",
+  "type": "enviar_sms",
+  "status": "Pendiente",
+  "assigneeId": null,
+  "createdAt": "2026-08-11T18:00:00.000Z"
+}
+```
+
+### 7.2 GET /api/cases/{id}/tasks
+
+Lista las Tasks del Caso. Filtros: `status` (Pendiente/EnProgreso/Completada/Cancelada), `assigneeId`.
+
+```bash
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases/11111111-.../tasks?status=Pendiente"
+```
+
+### 7.3 GET /api/cases/{id}/tasks/{taskId}
+
+Devuelve el detalle de una Task concreta (incluye `result`).
+
+### 7.4 PATCH /api/cases/{id}/tasks/{taskId}/assign
+
+Asigna la Task a un Participant. Requiere rol `Supervisor` o `Gerente` (policy `RequireSupervisorGerente` en `Program.cs`).
+
+**Request body**
+
+```json
+{ "assigneeId": "44444444-..." }
+```
+
+Genera `AuditRecord(TaskAssigned)`.
+
+### 7.5 PATCH /api/cases/{id}/tasks/{taskId}/start
+
+Transiciona la Task de `Pendiente` → `EnProgreso`. Requiere rol `Operador`/`Supervisor`/`Api` (handler). El rol `Api` permite a n8n iniciar tareas automatizadas (envio de SMS, etc.).
+
+Genera `AuditRecord(TaskStarted)` + TimelineEvent.
+
+### 7.6 PATCH /api/cases/{id}/tasks/{taskId}/complete
+
+Transiciona a `Completada` (desde `Pendiente` o `EnProgreso`), registra `Result` y `CompletedAt`. Requiere rol `Operador`/`Supervisor`/`Api`.
+
+**Request body**
+
+```json
+{ "result": "SMS enviado correctamente al +54 9 11 ..." }
+```
+
+### 7.7 PATCH /api/cases/{id}/tasks/{taskId}/cancel
+
+Transiciona a `Cancelada` (desde `Pendiente` o `EnProgreso`). Requiere rol `Operador`/`Supervisor` (no `Api` — el operador decide cancelar).
+
+### 7.8 Estados y transiciones Tasks
+
+| Estado      | Siguiente                          |
+|-------------|------------------------------------|
+| Pendiente   | EnProgreso / Completada / Cancelada |
+| EnProgreso  | Completada / Cancelada             |
+| Completada  | (terminal)                         |
+| Cancelada   | (terminal)                         |
+
+### 7.9 n8n HTTP Request Node (Tasks)
+
+n8n tipicamente crea la Task al iniciar el workflow y la completa cuando el proveedor externo responde:
+
+1. **Workflow 1 (HIS lee turnos)**: tras `POST /api/cases` exitoso, hacer `POST /api/cases/{id}/tasks` con `type = enviar_sms`, `assigneeId = <participant id del Agente SMS>`, `dueAt = ahora + 2h`.
+2. **n8n envia el SMS via proveedor externo**. Si OK → `PATCH /api/cases/{id}/tasks/{taskId}/start` (Api) y luego `PATCH /api/cases/{id}/tasks/{taskId}/complete` con `result = "enviado a +54 9 11 ..."`. Si error → ver regla 6.4 de oro (Task `start` + `Suspendido` del caso).
+
+> `Tasks/cancel` no esta permitido para rol `Api` — cancelar una tarea es oversight del operador.
+
+---
+
+## 8. Participants (Iteracion B — IMPLEMENTADA 2026-08-11)
+
+Los Participants unifican en una sola entidad a personas externas (pacientes), usuarios internos (operadores), sistemas externos (HIS) y agentes IA.
+
+### 8.1 POST /api/cases/{id}/participants
+
+Crea o reusa un `Participant` (busca primero por `externalId`; si no existe, lo crea) y lo vincula al Caso con un `Rol` concreto via la entidad join `CaseParticipant`. Reutilizable a traves de multiples Casos. Genera `TimelineEvent` mantiene `Origin` snapshot string para la UI + genera `AuditRecord(ParticipantRegistered)` con `ContextRef = ExternalId`.
+
+**Request body**
+
+```json
+{
+  "type": "PersonaExterna",
+  "reference": "Juan Perez",
+  "externalId": "PAT-12345",
+  "rol": "Paciente"
+}
+```
+
+- `type` (enum, obligatorio): `PersonaExterna` / `UsuarioInterno` / `SistemaExterno` / `AgenteIA`.
+- `reference` (string, obligatorio): nombre o identificador legible (se persiste como snapshot en `TimelineEvent.Origin`).
+- `externalId` (string?, opcional): id externo. Si existe un `Participant` con ese `ExternalId`, se reusa en lugar de crear.
+- `rol` (string, obligatorio): rol en este Caso (ej. `Paciente`, `Operador`, `SistemaDeOrigen`, `AgenteEjecutor`).
+
+**Response 201 Created**
+
+```json
+{
+  "participantId": "44444444-...",
+  "caseId": "11111111-...",
+  "rol": "Paciente"
+}
+```
+
+### 8.2 GET /api/cases/{id}/participants
+
+```bash
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases/11111111-.../participants"
+```
+
+Devuelve lista con `participantId`, `type`, `reference`, `externalId` y `rol`.
+
+### 8.3 vinculacion en Timeline events
+
+`POST /api/cases/{id}/timeline` ahora acepta el campo opcional `originParticipantId` (Guid). Si se pasa, el handler valida que el Participant exista y persiste `TimelineEvent.ParticipantId` ademas de `Origin` (snapshot). La UI Blazor muestra el badge de participant vinculado en el detalle del caso.
+
+```json
+{
+  "type": "Aviso",
+  "origin": "HIS",
+  "originParticipantId": "44444444-...",
+  "content": "SMS enviado."
+}
+```
+
+---
+
+## 9. Audit (Iteracion B — IMPLEMENTADA 2026-08-11)
+
+### 9.1 GET /api/cases/{id}/audit
+
+Devuelve los `AuditRecord` del Caso en orden descendente por `OccurredAt`. Requiere rol `Gerente` (policy `RequireGerente`).
+
+```bash
+curl -H "X-API-Key: caimmand-poc-key" "http://localhost:8080/api/cases/11111111-.../audit"
+```
+
+**Response 200 OK**
+
+```json
+[
+  {
+    "id": "55555555-...",
+    "caseId": "11111111-...",
+    "operation": "StatusChange",
+    "origin": "Supervisor",
+    "occurredAt": "2026-08-11T18:30:00.000Z",
+    "changeJson": "{\"from\":\"EnCurso\",\"to\":\"Suspendido\"}",
+    "contextRef": null
+  },
+  {
+    "id": "66666666-...",
+    "caseId": "11111111-...",
+    "operation": "CaseCreation",
+    "origin": "HIS",
+    "occurredAt": "2026-08-11T18:00:00.000Z",
+    "changeJson": "{\"caseDefinitionCode\":\"APPOINTMENT_REMINDER\",\"status\":\"Creado\",\"priority\":\"Media\"}",
+    "contextRef": null
+  }
+]
+```
+
+### 9.2 Operaciones registradas (AuditOperation enum)
+
+| `Operation`            | Cuando se genera                                  |
+|------------------------|---------------------------------------------------|
+| `CaseCreation`         | `POST /api/cases`                                 |
+| `StatusChange`         | `PATCH /api/cases/{id}/status`                    |
+| `EventAdded`           | `POST /api/cases/{id}/timeline`                  |
+| `ParticipantRegistered`| `POST /api/cases/{id}/participants`              |
+| `TaskCreated`          | `POST /api/cases/{id}/tasks`                     |
+| `TaskAssigned`         | `PATCH /api/cases/{id}/tasks/{tid}/assign`       |
+| `TaskStarted`          | `PATCH /api/cases/{id}/tasks/{tid}/start`        |
+| `TaskCompleted`        | `PATCH /api/cases/{id}/tasks/{tid}/complete`     |
+| `TaskCancelled`        | `PATCH /api/cases/{id}/tasks/{tid}/cancel`       |
+
+El handler `UpdateCaseDefinitionHandler` no audit explicitamente en la Iteracion B (queda como backlog de Iteracion C); los cambios a Case Definitions son detectables via `CaseDefinitions` table (quedan logged en Serilog). `SetActiveCaseDefinition` igual.
+
+---
+
+## 10. Autorizacion por rol (n8n + UI)
+
+> Iteracion B — IMPLEMENTADA 2026-08-11. Detalle completo en `ADR-002-Settings-Based-Auth.md`.
+
+Para n8n, el header sigue siendo el unico requisito. Los endpoints que requieren rol especifico (Create/Update/SetActive CaseDefinition, Audit, Tasks/assign) estan disponibles, pero los que se catalogan como `Gerente` no pueden ser ejecutados desde n8n con el rol `Api` — eso es consciente: n8n no configura definiciones, ni asigna tasks, ni consulta audit. Para Tasks `start`/`complete` y Caso status `Finalizado`, n8n (rol `Api`) si esta autorizado ({to:"Finalizado"} requiere `Api` ademas de `Supervisor`/`Gerente`).
+
+| Endpoint / operacion | Roles permitidos para n8n (`Api`)                                            |
+|----------------------|--------------------------------------------------------------------------------|
+| `POST /api/cases`                                 | SI     |
+| `GET /api/cases[/{id}]`                           | SI     |
+| `PATCH /api/cases/{id}/status` (EnCurso)          | SI     |
+| `PATCH /api/cases/{id}/status` (Finalizado)        | SI     |
+| `PATCH /api/cases/{id}/status` (Suspendido/Cancelado) | NO  |
+| `POST /api/cases/{id}/timeline`                   | SI     |
+| `POST /api/cases/{id}/tasks`                      | SI     |
+| `GET /api/cases/{id}/tasks[/{tid}]`               | SI     |
+| `PATCH /api/cases/{id}/tasks/{tid}/start`         | SI     |
+| `PATCH /api/cases/{id}/tasks/{tid}/complete`      | SI     |
+| `PATCH /api/cases/{id}/tasks/{tid}/cancel`        | NO     |
+| `PATCH /api/cases/{id}/tasks/{tid}/assign`        | NO  |
+| `POST /api/cases/{id}/participants`              | SI     |
+| `GET /api/cases/{id}/participants`               | SI     |
+| `POST /api/case-definitions`                      | NO     |
+| `PATCH /api/case-definitions/{id}*`               | NO     |
+| `GET /api/cases/{id}/audit`                       | NO     |
+
+> n8n debe respetar este mapeo. Si un workflow intenta un endpoint prohibido para rol `Api`, recibira `403 Forbidden`.

@@ -1,10 +1,12 @@
 using System.Text.Json;
+using Caimmand.Application.Audit;
 using Caimmand.Domain;
 using Caimmand.Domain.Entities;
 using Caimmand.Domain.Enums;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.EntityFrameworkCore;
+using Task = System.Threading.Tasks.Task;
 
 namespace Caimmand.Application.Cases.Create;
 
@@ -12,11 +14,13 @@ public sealed class CreateCaseHandler
 {
     private readonly ICaimmandDbContext _db;
     private readonly IValidator<CreateCaseCommand> _validator;
+    private readonly IAuditRecorder _audit;
 
-    public CreateCaseHandler(ICaimmandDbContext db, IValidator<CreateCaseCommand> validator)
+    public CreateCaseHandler(ICaimmandDbContext db, IValidator<CreateCaseCommand> validator, IAuditRecorder audit)
     {
         _db = db;
         _validator = validator;
+        _audit = audit;
     }
 
     public async Task<CreateCaseResponse> Handle(CreateCaseCommand command, CancellationToken ct)
@@ -54,6 +58,8 @@ public sealed class CreateCaseHandler
             Status = CaseStatus.Creado,
             Context = JsonDocument.Parse(command.Context.GetRawText()),
             SourceSystem = command.SourceSystem,
+            Priority = command.Priority ?? definition.DefaultPriority,
+            Sla = command.Sla ?? definition.DefaultSla,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -68,6 +74,24 @@ public sealed class CreateCaseHandler
             Content = $"Caso creado por {command.SourceSystem}.",
             OccurredAt = now
         });
+
+        var change = JsonSerializer.Serialize(new
+        {
+            caseDefinitionCode = entity.CaseDefinitionCode,
+            title = entity.Title,
+            sourceSystem = entity.SourceSystem,
+            priority = entity.Priority,
+            sla = entity.Sla?.ToString(),
+            status = entity.Status.ToString()
+        });
+
+        await _audit.RecordAsync(
+            entity.Id,
+            AuditOperation.CaseCreation,
+            command.SourceSystem,
+            change,
+            contextRef: null,
+            ct);
 
         await _db.SaveChangesAsync(ct);
 

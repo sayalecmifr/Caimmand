@@ -26,23 +26,37 @@ Ciclo de vida del Caso: `Creado → En curso ⇄ Suspendido → Finalizado | Can
 src/
     Caimmand.slnx
     Caimmand.Domain/                    # entidades, Value Objects, enums, ICaimmandDbContext
-        Entities/  Enums/
-    Caimmand.Application/               # casos de uso; consume ICaimmandDbContext
+        Entities/  Enums/  Exceptions/
+    Caimmand.Application/               # casos de uso; consume ICaimmandDbContext, IAuditRecorder, IAuthorizationContext
         Cases/{Create,List,GetDetail,UpdateStatus}/
         Timeline/{AddEvent,GetTimeline}/
         Dashboard/GetDashboardKpis/
+        Audit/{IAuditRecorder, AuditRecorder, GetAudit}/
+        Participants/{Register,List}/
+        Tasks/{Create,Assign,Start,Complete,Cancel,List,GetDetail}/
+        CaseDefinitions/{Create,List,Update,SetActive}/
+        Authorization/{IAuthorizationContext, Roles, UnauthorizedOperationException}
     Caimmand.Infrastructure/            # EF Core: CaimmandDbContext, migraciones, DI
         Migrations/
     Caimmand.Web/                       # host único: Blazor Server + Minimal APIs + DI
-        Components/Pages/               # Home, Cases, CaseView, Error, NotFound
+        Components/Pages/               # Home, Cases, CaseView, Tasks, CaseDefinitions, Login, Error, NotFound
         Components/Layout/
-tests/Caimmand.Tests/                   # xUnit; espeja Application (un *HandlerTests.cs por operación)
-    Infrastructure/TestDbContext.cs
+        Auth/
+        Authorization/                  # HttpAuthorizationContext (implementa IAuthorizationContext)
+    tests/Caimmand.Tests/                   # xUnit; espeja Application (un *HandlerTests.cs por operación)
+        Infrastructure/{TestDbContext.cs, TestAuthorizationContext.cs}
 scripts/run-postgres.ps1
 ```
 
-Entidades persistidas hoy: `Case`, `CaseDefinition`, `TimelineEvent`.
-Endpoints (`Program.cs`): `POST /api/cases`, `GET /api/cases`, `GET /api/cases/{id}`, `PATCH /api/cases/{id}/status`, `POST /api/cases/{id}/timeline`, `GET /api/cases/{id}/timeline`.
+Entidades persistidas: `Case`, `CaseDefinition`, `TimelineEvent`, `Participant`, `CaseParticipant` (join con `Rol`), `AuditRecord`, `Task`. Atributos no-PoC: `Case.Priority`/`Case.Sla` (columnas propias, heredadas de `CaseDefinition` al crear), `CaseDefinition.AllowedStatuses` (JSONB; vacío = global), `TimelineEvent.ParticipantId?` (vincula a Participant estructurado; `Origin` se mantiene como snapshot string).
+
+Endpoints (`Program.cs`):
+- Cases: `POST /api/cases`, `GET /api/cases`, `GET /api/cases/{id}`, `PATCH /api/cases/{id}/status`
+- Timeline: `POST /api/cases/{id}/timeline`, `GET /api/cases/{id}/timeline`
+- Participants: `POST /api/cases/{id}/participants`, `GET /api/cases/{id}/participants`
+- Tasks: `POST /api/cases/{id}/tasks`, `GET /api/cases/{id}/tasks`, `GET /api/cases/{id}/tasks/{taskId}`, `PATCH /api/cases/{id}/tasks/{taskId}/{assign,start,complete,cancel}`
+- CaseDefinitions: `POST /api/case-definitions`, `GET /api/case-definitions`, `PATCH /api/case-definitions/{id}`, `PATCH /api/case-definitions/{id}/active`
+- Audit: `GET /api/cases/{id}/audit` (solo `Gerente`)
 
 ## Decision Priority
 
@@ -87,32 +101,37 @@ Checklist antes de tocar código:
 
 ## Current Scope
 
-**In Scope (PoC actual):**
-- Cases (entidad `Case`)
-- Case Definitions (entidad `CaseDefinition`)
-- Timeline (entidad `TimelineEvent`)
-- Dashboard (KPIs por estado y "Requieren Intervención")
-- Blazor Server (UI en el mismo proceso)
+**In Scope (PoC + Iteracion B — IMPLEMENTADA 2026-08-11):**
+- Cases (entidad `Case`, con `Priority`/`Sla` como columnas propias)
+- Case Definitions (entidad `CaseDefinition`, con `AllowedStatuses` JSONB)
+- Timeline (entidad `TimelineEvent`, con `ParticipantId?` )
+- Participants (entidad `Participant` + join `CaseParticipant`)
+- Tasks (entidad `Task`, estados `Pendiente`/`EnProgreso`/`Completada`/`Cancelada`)
+- Audit (entidad `AuditRecord`, generation automatica via `IAuditRecorder` on every mutation)
+- Dashboard (KPIs por estado, "Requieren Intervención"=Casos Suspendidos, `TasksOverdue`)
+- Blazor Server (UI en el mismo proceso) con páginas `/`, `/cases`, `/cases/{id}`, `/tasks`, `/admin/case-definitions`, `/login`
 - Minimal APIs (Command API expuesta por `Program.cs`)
+- Auth interim (cookie UI + API key) + autorizacion por rol (`Operador`/`Supervisor`/`Gerente`/`Api`)
 - PostgreSQL + EF Core
 - FluentValidation, Serilog, Docker Compose
-- Flujo end-to-end del caso `APPOINTMENT_REMINDER` (sembrado al iniciar)
+- Flujo end-to-end del caso `APPOINTMENT_REMINDER` (sembrado al iniciar, con `AllowedStatuses = [Creado, EnCurso, Finalizado, Cancelado]`)
 
-**Out of Scope (excluido del PoC):**
-- Task (Tarea)
-- Participant (Participante)
-- Audit (Registro de Auditoría)
+**Out of Scope (siguen excluidos):**
 - Multi-tenant
-- Autenticación y autorización complejas (Keycloak)
+- Autenticacion de produccion (Keycloak / IdentityServer / OIDC) — la auth interim settings-based sigue como puerta de entrada
+- Hashing de passwords en settings (sigue plaintext; backlog)
+- API key por sistema externo + rotacion (sigue una sola key)
 - Mensajería asíncrona (RabbitMQ)
 - Bus de eventos / eventos de integración
 - Observabilidad enterprise (OpenTelemetry, Redis)
-- Integraciones reales (n8n, Meta WhatsApp)
+- Integraciones reales (n8n workflow runner, Meta WhatsApp) — la Command API esta lista para que n8n se integre en el futuro
 - Motor BPM / Motor de workflows
 - Notificaciones
 - IA autónoma tomando decisiones críticas
 - Marketplace de agentes
 - Analítica avanzada, tableros y reportes complejos
+- Backlog Iteracion C: indice GIN sobre `Context.externalId` + filtro en SQL
+- Backlog Iteracion D: `IdempotencyContextKey` configurable por `CaseDefinition`
 
 ## Restricciones (qué NO hacer)
 
@@ -120,10 +139,13 @@ Checklist antes de tocar código:
 - No crear Casos desde dentro de Caimmand (los crea el Sistema de Origen vía API).
 - No implementar reglas de negocio en workflows externos; las reglas viven en Caimmand.
 - No ejecutar procesos de negocio, workflows, BPMN, prompt engineering ni automatizaciones dentro de Caimmand.
-- No generar modificaciones silenciosas: toda modificación relevante genera un `TimelineEvent` (y, cuando se implemente, un Registro de Auditoria).
+- No generar modificaciones silenciosas: toda modificación relevante genera un `TimelineEvent` (vista funcional) **y** un `AuditRecord` (trazabilidad técnica inmutable) via `IAuditRecorder`.
+- No generar `AuditRecord` manualmente desde un handler nuevo sin orquestarlo via `IAuditRecorder.RecordAsync(...)` para mantener el formato unico (`Operation`, `Origin`, `OccurredAt`, `ChangeJson`, `ContextRef`).
+- No bloquear transiciones en handlers Application sin pasar por `CaseStatusTransitions.IsValid(from, to, allowed)` — el set `allowed` debe respetarse.
+- No omitir el check de autorizacion en handlers de mutacion: usar `IAuthorizationContext.IsInRole(...)` y lanzar `UnauthorizedOperationException` si no aplica (ver `ADR-002`).
 - No introducir dependencias con herramientas de automatización específicas (n8n, etc.).
 - No crear dependencias circulares ni acceso cruzado a persistencia entre módulos.
-- Tasks no es un motor BPM: no contiene lógica de flujo ni ejecuta trabajo.
+- Task **no es un motor BPM**: no contiene lógica de flujo ni ejecuta trabajo. Su ejecucion ocurre fuera de Caimmand; solo se registran su estado, asignatario y resultado.
 - No introducir Repository Pattern genérico, AutoMapper, ni capas abstractas no presentes hoy.
 
 ## Navegación de la documentación
@@ -134,9 +156,21 @@ Checklist antes de tocar código:
 | Guía UX y pantallas | `docs/00-product/UX-Guidelines.md` |
 | Arquitectura funcional, Command API, límites del sistema | `docs/01-architecture/Architecture.md` |
 | Justificación del Modular Monolith y reglas de dependencias | `docs/01-architecture/ADR/ADR-001-Modular-Monolith.md` |
+| Auth interim settings-based + autorizacion por rol (Iteracion B) | `docs/01-architecture/ADR/ADR-002-Settings-Based-Auth.md` |
 | Entidades del dominio y relaciones | `docs/02-development/DomainModel.md` |
 | Alcance y objetivos del MVP | `docs/02-development/MVP.md` |
 | Plan técnico del PoC (stack, fases, endpoints, pantallas, decisiones técnicas) | `docs/03-implementation/PoC-Implementation-Plan.md` |
+| Ejemplos curl + guia de integracion n8n (secciones 7=Tasks, 8=Participants, 9=Audit, 10=Authz por rol) | `docs/03-implementation/api-examples.md` |
+
+## Iteracion B — registro historico
+
+> Implementada el 2026-08-11. Tres sub-iteraciones:
+
+- **B.1 (Participants + Audit + CaseDefinitions extensions + Priority/Sla)**: entidades `Participant`, `CaseParticipant`, `AuditRecord`; `IAuditRecorder` + retrofit en CreateCase/UpdateCaseStatus/AddTimelineEvent; slices `Participants/Register|List`, `Audit/GetAudit`, `CaseDefinitions/Update|SetActive`; herencia `Priority`/`Sla` de CaseDefinition; `TimelineEvent.ParticipantId?` + `Origin` snapshot.
+- **B.2 (Tasks + Dashboard `TasksOverdue`)**: entidad `Task` + slices `Tasks/{Create,Assign,Start,Complete,Cancel,List,GetDetail}`; cada mutation genera TimelineEvent + AuditRecord; nuevo KPI `TasksOverdue`; pagina Blazor `/tasks` y seccion Tareas en CaseView.
+- **B.3 (AllowedStatuses + Auth por rol)**: `CaseDefinition.AllowedStatuses` JSONB + value converter EF Core; `CaseStatusTransitions.IsValid(from, to, allowed)`; `InvalidStatusTransitionException`; `IAuthorizationContext` + policies `RequireGerente`/`RequireSupervisorGerente` en Program.cs; checks de rol en handlers (CaseDefinition Create/Update/SetActive + Audit Get = `Gerente`; Tasks/assign = `Supervisor`/`Gerente`; Tasks/start/complete = `Operador`/`Supervisor`/`Api`; Tasks/cancel = `Operador`/`Supervisor`); `<AuthorizeView Roles="...">` en Blazor; pagina `/admin/case-definitions`.
+
+Tests: 129 casos en `tests/Caimmand.Tests/` (build limpio, 0 errores).
 
 ## Inconsistencias encontradas
 

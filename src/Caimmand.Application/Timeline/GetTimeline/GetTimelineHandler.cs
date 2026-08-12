@@ -20,7 +20,7 @@ public sealed class GetTimelineHandler
             .ToListAsync(ct);
 
         return events
-            .Select(e => new TimelineEventItem(e.Id, e.Sequence, e.Type, e.Origin, e.Content, e.OccurredAt))
+            .Select(e => new TimelineEventItem(e.Id, e.Sequence, e.Type, e.Origin, e.ParticipantId, e.Content, e.OccurredAt))
             .ToList();
     }
 }

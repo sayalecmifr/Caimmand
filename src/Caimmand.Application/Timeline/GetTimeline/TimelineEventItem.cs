@@ -5,5 +5,6 @@ public sealed record TimelineEventItem(
     long Sequence,
     string Type,
     string Origin,
+    Guid? ParticipantId,
     string Content,
     DateTime OccurredAt);

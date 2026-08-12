@@ -1,3 +1,5 @@
+using Caimmand.Domain.Enums;
+
 namespace Caimmand.Domain.Entities;
 
 public class CaseDefinition
@@ -12,4 +14,5 @@ public class CaseDefinition
     public string DefaultPriority { get; set; } = "Media";
     public string DisplayColor { get; set; } = "#6c757d";
     public string DisplayIcon { get; set; } = "folder";
+    public List<CaseStatus> AllowedStatuses { get; set; } = new();
 }

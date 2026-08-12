@@ -18,5 +18,19 @@
                 <span class="bi bi-list-ul-nav-menu" aria-hidden="true"></span> Casos
             </NavLink>
         </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="tasks" Match="NavLinkMatch.Prefix">
+                <span class="bi bi-list-check-nav-menu" aria-hidden="true"></span> Tareas
+            </NavLink>
+        </div>
+        <AuthorizeView Roles="Gerente">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="admin/case-definitions" Match="NavLinkMatch.Prefix">
+                        <span class="bi bi-folder-plus-nav-menu" aria-hidden="true"></span> Case Definitions
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
     </nav>
 </div>

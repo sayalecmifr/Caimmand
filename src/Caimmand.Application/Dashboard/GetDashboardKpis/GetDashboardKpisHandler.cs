@@ -1,6 +1,9 @@
 using Caimmand.Domain;
 using Caimmand.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Task = System.Threading.Tasks.Task;
+using TaskEntity = Caimmand.Domain.Entities.Task;
+using TaskStatus = Caimmand.Domain.Enums.TaskStatus;
 
 namespace Caimmand.Application.Dashboard.GetDashboardKpis;
 
@@ -20,6 +23,13 @@ public sealed class GetDashboardKpisHandler
         var finalizados = await _db.Cases.CountAsync(c => c.Status == CaseStatus.Finalizado, ct);
         var requierenIntervencion = await _db.Cases.CountAsync(c => c.Status == CaseStatus.Suspendido, ct);
 
-        return new DashboardKpis(total, created, finalizados, requierenIntervencion);
+        var now = DateTime.UtcNow;
+        var tasksOverdue = await _db.Tasks
+            .CountAsync(t =>
+                (t.Status == TaskStatus.Pendiente || t.Status == TaskStatus.EnProgreso)
+                && t.DueAt != null
+                && t.DueAt < now, ct);
+
+        return new DashboardKpis(total, created, finalizados, requierenIntervencion, tasksOverdue);
     }
 }

@@ -134,7 +134,7 @@ Responsable del gobierno global de la operacion: analisis de tendencias, auditor
 - Auditoria
 - Observabilidad
 
-> **Alcance por iteracion**: el PoC actual (ver `docs/03-implementation/PoC-Implementation-Plan.md`) implementa Cases, Case Definitions, Timeline y Dashboard. Tasks, Participants y Audit se incorporan en la **Iteracion B**. El alcance de producto listado arriba corresponde al producto completo, no al PoC.
+> **Alcance por iteracion**: el PoC actual (ver `docs/03-implementation/PoC-Implementation-Plan.md`) originalmente implementaba Cases, Case Definitions, Timeline y Dashboard. Tasks, Participants y Audit estaban reservados para la **Iteracion B**, que fue completada el 2026-08-11 — ver `docs/03-implementation/api-examples.md` (secciones Participants, Tasks y Audit) y `docs/02-development/MVP.md`. El alcance de producto listado arriba corresponde al producto completo, no al PoC original.
 
 ### Fuera (Out of Scope)
 

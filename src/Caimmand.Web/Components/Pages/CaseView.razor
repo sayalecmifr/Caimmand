@@ -4,14 +4,22 @@
 @using Caimmand.Application.Cases.UpdateStatus
 @using Caimmand.Application.Timeline.AddEvent
 @using Caimmand.Application.Timeline.GetTimeline
+@using Caimmand.Application.Participants.List
+@using Caimmand.Application.Tasks.List
 @using Caimmand.Domain.Enums
+@using TaskStatus = Caimmand.Domain.Enums.TaskStatus
 @inject GetCaseDetailHandler DetailHandler
 @inject GetTimelineHandler TimelineHandler
 @inject UpdateCaseStatusHandler StatusHandler
 @inject AddTimelineEventHandler AddEventHandler
+@inject ListParticipantsHandler ParticipantsHandler
+@inject ListTasksHandler TasksHandler
+@inject Caimmand.Application.Tasks.Start.StartTaskHandler TaskStartHandler
+@inject Caimmand.Application.Tasks.Complete.CompleteTaskHandler TaskCompleteHandler
+@inject Caimmand.Application.Tasks.Cancel.CancelTaskHandler TaskCancelHandler
 @inject NavigationManager Nav
 
-<PageTitle>Caimmand PoC · Detalle del Caso</PageTitle>
+<PageTitle>Caimmand · Detalle del Caso</PageTitle>
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -81,6 +89,100 @@
             </div>
         </div>
 
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h3 class="h6 fw-semibold mb-3">Participantes</h3>
+                @if (Participants is null || Participants.Count == 0)
+                {
+                    <p class="text-muted mb-0">No hay participantes registrados.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col">Referencia</th>
+                                    <th scope="col">Tipo</th>
+                                    <th scope="col">Rol</th>
+                                    <th scope="col">ExternalId</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in Participants)
+                                {
+                                    <tr>
+                                        <td class="fw-semibold">@p.Reference</td>
+                                        <td><span class="badge bg-secondary">@p.Type</span></td>
+                                        <td>@p.Rol</td>
+                                        <td class="text-muted small">@(@p.ExternalId ?? "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h3 class="h6 fw-semibold mb-3">Tareas</h3>
+                @if (Tasks is null || Tasks.Count == 0)
+                {
+                    <p class="text-muted mb-0">No hay tareas registradas.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-3">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col">Tipo</th>
+                                    <th scope="col">Estado</th>
+                                    <th scope="col">Vence</th>
+                                    <th scope="col">Resultado</th>
+                                    <th scope="col">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var t in Tasks)
+                                {
+                                    <tr>
+                                        <td class="fw-semibold">@t.Type</td>
+                                        <td><span class="@TaskStatusBadgeClass(t.Status)">@TaskStatusLabel(t.Status)</span></td>
+                                        <td class="@(IsTaskOverdue(t) ? "text-danger fw-semibold" : "text-muted")">
+                                            @(t.DueAt.HasValue ? t.DueAt.Value.ToLocalTime().ToString("g") : "-")
+                                        </td>
+                                        <td class="text-muted small">@(@t.Result ?? "-")</td>
+                                        <td>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                @if (t.Status == nameof(TaskStatus.Pendiente))
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => StartTask(t.Id)" disabled="@TaskActionInProgress">Iniciar</button>
+                                                    <button class="btn btn-sm btn-outline-success" @onclick="() => CompleteTask(t.Id)" disabled="@TaskActionInProgress">Completar</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => CancelTask(t.Id)" disabled="@TaskActionInProgress">Cancelar</button>
+                                                }
+                                                else if (t.Status == nameof(TaskStatus.EnProgreso))
+                                                {
+                                                    <button class="btn btn-sm btn-outline-success" @onclick="() => CompleteTask(t.Id)" disabled="@TaskActionInProgress">Completar</button>
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => CancelTask(t.Id)" disabled="@TaskActionInProgress">Cancelar</button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    @if (TaskActionError is not null)
+                    {
+                        <div class="text-danger small">@TaskActionError</div>
+                    }
+                }
+            </div>
+        </div>
+
         <div class="row g-3">
             <div class="col-md-7">
                 <div class="card shadow-sm h-100">
@@ -100,7 +202,13 @@
                                             <span class="fw-semibold">@item.Type</span>
                                             <small class="text-muted">@item.OccurredAt.ToLocalTime().ToString("g")</small>
                                         </div>
-                                        <div class="text-muted small mb-1">@item.Origin</div>
+                                        <div class="text-muted small mb-1">
+                                            @item.Origin
+                                            @if (item.ParticipantId is not null && ParticipantRefs.TryGetValue(item.ParticipantId.Value, out var pref))
+                                            {
+                                                <span class="badge bg-light text-dark border">@pref</span>
+                                            }
+                                        </div>
                                         <div>@item.Content</div>
                                     </div>
                                 }
@@ -158,18 +266,27 @@
                         }
                         else
                         {
-                            <div class="d-flex flex-wrap gap-2">
-                                @foreach (var target in targets)
-                                {
-                                    <button class="btn btn-outline-primary btn-sm" @onclick="() => ChangeStatus(target)">
-                                        @StatusLabel(target)
-                                    </button>
-                                }
-                            </div>
-                            @if (StatusError is not null)
-                            {
-                                <div class="text-danger small mt-2">@StatusError</div>
-                            }
+                            <AuthorizeView Roles="Supervisor,Gerente">
+                                <Authorized>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @foreach (var target in targets)
+                                        {
+                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => ChangeStatus(target)">
+                                                @StatusLabel(target)
+                                            </button>
+                                        }
+                                    </div>
+                                    @if (StatusError is not null)
+                                    {
+                                        <div class="text-danger small mt-2">@StatusError</div>
+                                    }
+                                </Authorized>
+                                <NotAuthorized>
+                                    <p class="text-muted mb-0">El caso admite estas transiciones, pero requieren rol
+                                        <strong>Supervisor</strong> o <strong>Gerente</strong>. Tu rol actual no las
+                                        permite.</p>
+                                </NotAuthorized>
+                            </AuthorizeView>
                         }
                     </div>
                 </div>
@@ -183,6 +300,9 @@
 
     private CaseDetail? Case;
     private IReadOnlyList<TimelineEventItem>? Timeline;
+    private IReadOnlyList<ParticipantItem>? Participants;
+    private IReadOnlyList<TaskItem>? Tasks;
+    private Dictionary<Guid, string> ParticipantRefs = new();
     private bool Loading = true;
     private string ContextPrettyJson = string.Empty;
     private string? StatusError;
@@ -191,6 +311,9 @@
     private string? NewEventContent;
     private bool AddingEvent;
     private string? AddEventError;
+
+    private bool TaskActionInProgress;
+    private string? TaskActionError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -203,6 +326,10 @@
         {
             Case = await DetailHandler.Handle(new GetCaseDetailQuery(caseId), default);
             Timeline = await TimelineHandler.Handle(new GetTimelineQuery(caseId), default);
+            Participants = await ParticipantsHandler.Handle(new ListParticipantsQuery(caseId), default);
+            Tasks = await TasksHandler.Handle(new ListTasksQuery(caseId), default);
+            ParticipantRefs = Participants
+                .ToDictionary(p => p.ParticipantId, p => p.Reference);
             if (Case is not null)
             {
                 ContextPrettyJson = JsonSerializer.Serialize(Case.Context.RootElement, new JsonSerializerOptions
@@ -261,6 +388,89 @@
     }
 
     private void GoBack() => Nav.NavigateTo("/cases");
+
+    private async Task StartTask(Guid taskId)
+    {
+        if (Case is null) return;
+        TaskActionError = null;
+        TaskActionInProgress = true;
+        try
+        {
+            await TaskStartHandler.Handle(new Caimmand.Application.Tasks.Start.StartTaskCommand(Case.Id, taskId), default);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            TaskActionError = ex.Message;
+        }
+        finally
+        {
+            TaskActionInProgress = false;
+        }
+    }
+
+    private async Task CompleteTask(Guid taskId)
+    {
+        if (Case is null) return;
+        TaskActionError = null;
+        TaskActionInProgress = true;
+        try
+        {
+            await TaskCompleteHandler.Handle(new Caimmand.Application.Tasks.Complete.CompleteTaskCommand(Case.Id, taskId, null), default);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            TaskActionError = ex.Message;
+        }
+        finally
+        {
+            TaskActionInProgress = false;
+        }
+    }
+
+    private async Task CancelTask(Guid taskId)
+    {
+        if (Case is null) return;
+        TaskActionError = null;
+        TaskActionInProgress = true;
+        try
+        {
+            await TaskCancelHandler.Handle(new Caimmand.Application.Tasks.Cancel.CancelTaskCommand(Case.Id, taskId), default);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            TaskActionError = ex.Message;
+        }
+        finally
+        {
+            TaskActionInProgress = false;
+        }
+    }
+
+    private static bool IsTaskOverdue(TaskItem t) =>
+        t.DueAt.HasValue && t.DueAt.Value < DateTime.UtcNow &&
+        t.Status != nameof(TaskStatus.Completada) &&
+        t.Status != nameof(TaskStatus.Cancelada);
+
+    private static string TaskStatusLabel(string s) => s switch
+    {
+        "Pendiente" => "Pendiente",
+        "EnProgreso" => "En progreso",
+        "Completada" => "Completada",
+        "Cancelada" => "Cancelada",
+        _ => s
+    };
+
+    private static string TaskStatusBadgeClass(string s) => s switch
+    {
+        "Pendiente" => "badge bg-secondary",
+        "EnProgreso" => "badge bg-info text-dark",
+        "Completada" => "badge bg-success",
+        "Cancelada" => "badge bg-danger",
+        _ => "badge bg-secondary"
+    };
 
     private static string StatusLabel(CaseStatus s) => s switch
     {

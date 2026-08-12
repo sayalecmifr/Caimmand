@@ -1,3 +1,5 @@
+using Caimmand.Domain.Enums;
+
 namespace Caimmand.Application.CaseDefinitions.List;
 
 public sealed record CaseDefinitionItem(
@@ -10,4 +12,5 @@ public sealed record CaseDefinitionItem(
     string? DefaultSla,
     string DefaultPriority,
     string DisplayColor,
-    string DisplayIcon);
+    string DisplayIcon,
+    IReadOnlyCollection<CaseStatus>? AllowedStatuses);

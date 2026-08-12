@@ -1,6 +1,8 @@
 using System.Text.Json;
+using Caimmand.Application.Audit;
 using Caimmand.Application.Timeline.AddEvent;
 using Caimmand.Domain.Entities;
+using Task = System.Threading.Tasks.Task;
 using Caimmand.Domain.Enums;
 using Caimmand.Tests.Infrastructure;
 using FluentValidation;
@@ -34,7 +36,7 @@ public class AddTimelineEventHandlerTests
     }
 
     private static AddTimelineEventHandler BuildHandler(TestDbContext db) =>
-        new(db, new AddTimelineEventValidator());
+        new(db, new AddTimelineEventValidator(), new AuditRecorder(db));
 
     [Fact]
     public async Task AddEvent_FirstEvent_AssignsSequence1()
@@ -81,5 +83,51 @@ public class AddTimelineEventHandlerTests
 
         await Assert.ThrowsAsync<ValidationException>(() =>
             handler.Handle(new AddTimelineEventCommand(caseId, "", "HIS", "Texto."), default));
+    }
+
+    [Fact]
+    public async Task AddEvent_GeneratesAuditRecord()
+    {
+        var (db, caseId) = await SeedCaseAsync();
+        var handler = BuildHandler(db);
+
+        await handler.Handle(new AddTimelineEventCommand(caseId, "Aviso", "n8n", "SMS enviado."), default);
+
+        var audit = await db.AuditRecords.SingleAsync();
+        Assert.Equal(AuditOperation.EventAdded, audit.Operation);
+        Assert.Equal("n8n", audit.Origin);
+        Assert.Contains("Aviso", audit.ChangeJson);
+    }
+
+    [Fact]
+    public async Task AddEvent_WithOriginParticipantId_LinksEventToParticipant()
+    {
+        var (db, caseId) = await SeedCaseAsync();
+        var participant = new Participant
+        {
+            Type = ParticipantType.SistemaExterno,
+            Reference = "HIS",
+            ExternalId = "HIS-001"
+        };
+        db.Participants.Add(participant);
+        await db.SaveChangesAsync();
+
+        var handler = BuildHandler(db);
+        await handler.Handle(
+            new AddTimelineEventCommand(caseId, "Aviso", "HIS", "SMS enviado.", participant.Id),
+            default);
+
+        var evt = await db.TimelineEvents.SingleAsync();
+        Assert.Equal(participant.Id, evt.ParticipantId);
+    }
+
+    [Fact]
+    public async Task AddEvent_WithUnknownOriginParticipantId_ThrowsValidation()
+    {
+        var (db, caseId) = await SeedCaseAsync();
+        var handler = BuildHandler(db);
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            handler.Handle(new AddTimelineEventCommand(caseId, "Aviso", "HIS", "x.", Guid.NewGuid()), default));
     }
 }

@@ -1,6 +1,8 @@
 using System.Text.Json;
+using Caimmand.Application.Audit;
 using Caimmand.Application.Cases.Create;
 using Caimmand.Domain.Entities;
+using Task = System.Threading.Tasks.Task;
 using Caimmand.Domain.Enums;
 using Caimmand.Tests.Infrastructure;
 using FluentValidation;
@@ -14,20 +16,24 @@ public class CreateCaseHandlerTests
         JsonDocument.Parse("""{"patientId":12345,"patientName":"Juan Perez"}""").RootElement.Clone();
 
     private static CreateCaseHandler BuildHandler(TestDbContext db) =>
-        new(db, new CreateCaseValidator());
+        new(db, new CreateCaseValidator(), new AuditRecorder(db));
 
     private static CreateCaseCommand Command(
         string code = "APPOINTMENT_REMINDER",
         string title = "Recordatorio del turno de Juan Perez",
         string source = "HIS",
-        JsonElement? context = null) =>
-        new(code, title, source, context ?? ValidContext);
+        JsonElement? context = null,
+        string? priority = null,
+        TimeSpan? sla = null) =>
+        new(code, title, source, context ?? ValidContext, priority, sla);
 
     private static CaseDefinition ActiveDefinition() => new()
     {
         Code = "APPOINTMENT_REMINDER",
         Name = "Recordatorio de Turno",
-        IsActive = true
+        IsActive = true,
+        DefaultPriority = "Media",
+        DefaultSla = TimeSpan.FromHours(48)
     };
 
     private static CaseDefinition InactiveDefinition() => new()
@@ -58,6 +64,52 @@ public class CreateCaseHandlerTests
         Assert.Equal("Creacion", timelineEvent.Type);
         Assert.Equal("HIS", timelineEvent.Origin);
         Assert.Equal(1, timelineEvent.Sequence);
+    }
+
+    [Fact]
+    public async Task CreateCase_GeneratesAuditRecord()
+    {
+        using var db = TestDbContext.Create();
+        db.CaseDefinitions.Add(ActiveDefinition());
+        await db.SaveChangesAsync();
+
+        var handler = BuildHandler(db);
+        await handler.Handle(Command(), default);
+
+        var audit = await db.AuditRecords.SingleAsync();
+        Assert.Equal(AuditOperation.CaseCreation, audit.Operation);
+        Assert.Equal("HIS", audit.Origin);
+        Assert.NotEmpty(audit.ChangeJson);
+    }
+
+    [Fact]
+    public async Task CreateCase_InheritsPriorityAndSla_FromDefinition_WhenNotProvided()
+    {
+        using var db = TestDbContext.Create();
+        db.CaseDefinitions.Add(ActiveDefinition());
+        await db.SaveChangesAsync();
+
+        var handler = BuildHandler(db);
+        await handler.Handle(Command(), default);
+
+        var entity = await db.Cases.SingleAsync();
+        Assert.Equal("Media", entity.Priority);
+        Assert.Equal(TimeSpan.FromHours(48), entity.Sla);
+    }
+
+    [Fact]
+    public async Task CreateCase_UsesProvidedPriorityAndSla_WhenProvided()
+    {
+        using var db = TestDbContext.Create();
+        db.CaseDefinitions.Add(ActiveDefinition());
+        await db.SaveChangesAsync();
+
+        var handler = BuildHandler(db);
+        await handler.Handle(Command(priority: "Alta", sla: TimeSpan.FromHours(12)), default);
+
+        var entity = await db.Cases.SingleAsync();
+        Assert.Equal("Alta", entity.Priority);
+        Assert.Equal(TimeSpan.FromHours(12), entity.Sla);
     }
 
     [Fact]

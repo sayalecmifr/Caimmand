@@ -1,0 +1,225 @@
+@page "/admin/case-definitions"
+@attribute [Authorize(Roles = "Gerente")]
+@using Caimmand.Application.CaseDefinitions.List
+@using Caimmand.Application.CaseDefinitions.Update
+@using Caimmand.Application.CaseDefinitions.SetActive
+@using Caimmand.Domain.Enums
+@inject ListCaseDefinitionsHandler ListHandler
+@inject UpdateCaseDefinitionHandler UpdateHandler
+@inject SetActiveCaseDefinitionHandler SetActiveHandler
+@inject NavigationManager Nav
+
+<PageTitle>Caimmand· Case Definitions</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="mb-4">
+        <h1 class="display-6 fw-semibold mb-0">Case Definitions</h1>
+        <p class="text-muted mb-0">Administración de tipos de operación. Solo rol <strong>Gerente</strong>.</p>
+    </div>
+
+    @if (Loading)
+    {
+        <div class="text-center py-5 text-muted">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Cargando...
+        </div>
+    }
+    else if (Items is null || Items.Count == 0)
+    {
+        <div class="alert alert-info" role="alert">No hay Case Definitions registradas.</div>
+    }
+    else
+    {
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Code</th>
+                            <th scope="col">Nombre</th>
+                            <th scope="col">Categoría</th>
+                            <th scope="col">Prioridad</th>
+                            <th scope="col">Activa</th>
+                            <th scope="col">Estados admisibles</th>
+                            <th scope="col">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var def in Items)
+                        {
+                            <tr>
+                                <td><code>@def.Code</code></td>
+                                <td class="fw-semibold">@def.Name</td>
+                                <td>@(@def.Category ?? "-")</td>
+                                <td>@def.DefaultPriority</td>
+                                <td>
+                                    @if (def.IsActive)
+                                    {
+                                        <span class="badge bg-success">Activa</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Inactiva</span>
+                                    }
+                                </td>
+                                <td class="text-muted small">
+                                    @if (EditingId == def.Id)
+                                    {
+                                        <select class="form-select form-select-sm" @bind="EditingAllowedStatuses" multiple size="5">
+                                            @foreach (var s in Enum.GetValues<CaseStatus>())
+                                            {
+                                                <option value="@s">@StatusLabel(s)</option>
+                                            }
+                                        </select>
+                                        <div class="text-muted small">Ctrl/Cmd+click para seleccionar multiples. Vacio = todos.</div>
+                                    }
+                                    else
+                                    {
+                                        @(AllowedLabel(def.AllowedStatuses))
+                                    }
+                                </td>
+                                <td>
+                                    @if (EditingId == def.Id)
+                                    {
+                                        <button class="btn btn-sm btn-success" @onclick="() => SaveEdit(def)" disabled="@Saving">Guardar</button>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEdit" disabled="@Saving">Cancelar</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => StartEdit(def)">Editar</button>
+                                        @if (def.IsActive)
+                                        {
+                                            <button class="btn btn-sm btn-outline-warning" @onclick="() => SetActive(def.Id, false)" disabled="@Saving">Desactivar</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-success" @onclick="() => SetActive(def.Id, true)" disabled="@Saving">Activar</button>
+                                        }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (Error is not null)
+        {
+            <div class="alert alert-danger mt-3">@Error</div>
+        }
+    }
+</div>
+
+@code {
+    private bool Loading = true;
+    private bool Saving;
+    private IReadOnlyList<CaseDefinitionItem>? Items;
+    private string? Error;
+
+    private Guid? EditingId;
+    private string EditingName = string.Empty;
+    private string EditingDescription = string.Empty;
+    private string? EditingCategory;
+    private string EditingPriority = "Media";
+    private string EditingColor = "#3b82f6";
+    private string EditingIcon = "calendar";
+    private List<CaseStatus> EditingAllowedStatuses = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        Loading = true;
+        Items = await ListHandler.Handle(new ListCaseDefinitionsQuery(), default);
+        Loading = false;
+    }
+
+    private void StartEdit(CaseDefinitionItem def)
+    {
+        EditingId = def.Id;
+        EditingName = def.Name;
+        EditingDescription = def.Description;
+        EditingCategory = def.Category;
+        EditingPriority = def.DefaultPriority;
+        EditingColor = def.DisplayColor;
+        EditingIcon = def.DisplayIcon;
+        EditingAllowedStatuses = def.AllowedStatuses?.ToList() ?? new();
+        Error = null;
+    }
+
+    private void CancelEdit()
+    {
+        EditingId = null;
+        Error = null;
+    }
+
+    private async Task SaveEdit(CaseDefinitionItem def)
+    {
+        if (EditingId is null) return;
+        Saving = true;
+        Error = null;
+        try
+        {
+            await UpdateHandler.Handle(new UpdateCaseDefinitionCommand(
+                def.Id,
+                EditingName,
+                EditingDescription,
+                EditingCategory,
+                EditingPriority,
+                EditingColor,
+                EditingIcon,
+                EditingAllowedStatuses), default);
+            EditingId = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private async Task SetActive(Guid id, bool isActive)
+    {
+        Saving = true;
+        Error = null;
+        try
+        {
+            await SetActiveHandler.Handle(new SetActiveCaseDefinitionCommand(id, isActive), default);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            Saving = false;
+        }
+    }
+
+    private static string StatusLabel(CaseStatus s) => s switch
+    {
+        CaseStatus.Creado => "Creado",
+        CaseStatus.EnCurso => "En curso",
+        CaseStatus.Suspendido => "Suspendido",
+        CaseStatus.Finalizado => "Finalizado",
+        CaseStatus.Cancelado => "Cancelado",
+        _ => s.ToString()
+    };
+
+    private static string AllowedLabel(IReadOnlyCollection<CaseStatus>? allowed)
+    {
+        if (allowed is null || allowed.Count == 0)
+        {
+            return "Todos (global)";
+        }
+        return string.Join(", ", allowed.Select(StatusLabel));
+    }
+}

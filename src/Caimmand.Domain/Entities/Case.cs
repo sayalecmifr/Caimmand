@@ -11,6 +11,8 @@ public class Case
     public string Title { get; set; } = string.Empty;
     public JsonDocument Context { get; set; } = JsonDocument.Parse("{}");
     public string SourceSystem { get; set; } = string.Empty;
+    public string Priority { get; set; } = "Media";
+    public TimeSpan? Sla { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -1,5 +1,6 @@
 using Caimmand.Domain;
 using Microsoft.EntityFrameworkCore;
+using Task = System.Threading.Tasks.Task;
 
 namespace Caimmand.Application.CaseDefinitions.List;
 
@@ -29,7 +30,8 @@ public sealed class ListCaseDefinitionsHandler
                 d.DefaultSla?.ToString(),
                 d.DefaultPriority,
                 d.DisplayColor,
-                d.DisplayIcon))
+                d.DisplayIcon,
+                d.AllowedStatuses))
             .ToList();
     }
 }

@@ -1,3 +1,5 @@
+using Caimmand.Domain.Enums;
+
 namespace Caimmand.Application.CaseDefinitions.Create;
 
 public sealed record CreateCaseDefinitionCommand(
@@ -7,4 +9,5 @@ public sealed record CreateCaseDefinitionCommand(
     string? Category,
     string DefaultPriority,
     string DisplayColor,
-    string DisplayIcon);
+    string DisplayIcon,
+    List<CaseStatus>? AllowedStatuses = null);

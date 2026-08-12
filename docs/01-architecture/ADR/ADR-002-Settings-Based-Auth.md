@@ -35,9 +35,32 @@ Este ADR documenta un esquema **interim**: cuker auth UI + API key por settings.
    - `POST /account/logout` limpia la cookie, redirige a `/login`.
    - Pagina `/login` Blazor con `EmptyLayout` y `[AllowAnonymous]`.
 
-5. **Roles sin autorizacion fina (todavia)**:
-   - En esta iteracion **no se restringen paginas ni endpoints por rol** — toda pagina se ve igual para los 3 roles.
-   - Los claims `Role` quedan emitidos y listos para activar autorizacion por rol en **Iteracion B** (junto con Task + Participant), donde se aplicaran restricciones como: `POST /api/case-definitions` solo `Gerente`, `PATCH /api/cases/{id}/status` restringido a `Operador`/`Supervisor`.
+5. **Roles con autorizacion fina (Iteracion B)**:
+    - Se aplican restricciones por rol en endpoints y handlers (ver seccion "Autorizacion por rol" abajo).
+    - Los claims `Role` se emiten para los 3 roles del PDD: `Operador` / `Supervisor` / `Gerente`.
+    - Adicionalmente, la auth API key emite el claim `Role = Api` para que los orquestadores externos (n8n) puedan operar tareas y transiciones permitidas (Finalizar Caso, Start/Complete Task) sin permisos de administracion.
+
+### Autorizacion por rol (Iteracion B)
+
+Implementada en `Application/Authorization/IAuthorizationContext.cs` + `Web/Authorization/HttpAuthorizationContext.cs`. Los handlers consumen `IAuthorizationContext.IsInRole(...)` y lanzan `UnauthorizedOperationException` si el rol no esta autorizado. Los endpoints de Minimal API aplican policies `RequireGerente` / `RequireSupervisorGerente` configuradas en `Program.cs`.
+
+| Operacion | Roles permitidos | Donde se aplica |
+|-----------|------------------|-----------------|
+| `POST /api/cases`, `GET /api/cases[/{id}]` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
+| `POST /api/cases/{id}/timeline` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
+| `PATCH /api/cases/{id}/status` (a `EnCurso`) | Cualquiera autenticado | Handler (post-endpoint) |
+| `PATCH /api/cases/{id}/status` (a `Suspendido`/`Cancelado`) | `Supervisor` / `Gerente` | Handler (post-endpoint) |
+| `PATCH /api/cases/{id}/status` (a `Finalizado`) | `Supervisor` / `Gerente` / `Api` | Handler (post-endpoint) |
+| `POST /api/cases/{id}/participants` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
+| `POST /api/cases/{id}/tasks`, `GET /api/cases/{id}/tasks[/{tid}]` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
+| `PATCH /api/cases/{id}/tasks/{tid}/start` | `Operador` / `Supervisor` / `Api` | Handler (post-endpoint) |
+| `PATCH /api/cases/{id}/tasks/{tid}/complete` | `Operador` / `Supervisor` / `Api` | Handler (post-endpoint) |
+| `PATCH /api/cases/{id}/tasks/{tid}/cancel` | `Operador` / `Supervisor` | Handler (post-endpoint) |
+| `PATCH /api/cases/{id}/tasks/{tid}/assign` | `Supervisor` / `Gerente` | Endpoint `RequireSupervisorGerente` |
+| `POST /api/case-definitions`, `PATCH /api/case-definitions/{id}*` | `Gerente` | Endpoint `RequireGerente` + handler |
+| `GET /api/cases/{id}/audit` | `Gerente` | Endpoint `RequireGerente` + handler |
+
+UI Blazor: `CaseView.razor` envuelve los botones de transicion de estado en `<AuthorizeView Roles="Supervisor,Gerente">`; `NavMenu.razor` muestra "Case Definitions" solo a `Gerente`; `CaseDefinitions.razor` (`/admin/case-definitions`) tiene `@attribute [Authorize(Roles = "Gerente")]`.
 
 ## Consecuencias
 
@@ -60,7 +83,7 @@ Este ADR documenta un esquema **interim**: cuker auth UI + API key por settings.
 
 ## Backlog explicito
 
-- **Iteracion B** — autorizacion por rol (paginas / endpoints): los claims `Role` ya estan emitidos en esta iteracion; falta agregar `.RequireClaim(...)` o policies por rol a los endpoints.
+- **Iteracion B — autorizacion por rol (IMPLEMENTADA 2026-08-11)**: las policies `RequireGerente` y `RequireSupervisorGerente` y los checks `IAuthorizationContext.IsInRole(...)` en handlers estan activos. Originalmente pendiente en la Fase 4 del PoC; materializada junto con Tasks, Participants y Audit (ver `MVP.md` y `Architecture.md`).
 - **Iteracion futura (post-PoC)** — hashing de passwords en settings.
 - **Iteracion futura (post-PoC)** — API key por sistema externo + rotacion.
 - **Iteracion futura (post-PoC, fuera de ADR-002)** — migracion a Keycloak/IdentityServer: sustituye `AuthOptions` por esquema OIDC; ADR-003 cubrira ese cambio.

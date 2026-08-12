@@ -10,7 +10,7 @@ if ([string]::IsNullOrWhiteSpace($PostgresDb)) { $PostgresDb = 'caimmand' }
 $PostgresPort = $env:POSTGRES_PORT
 if ([string]::IsNullOrWhiteSpace($PostgresPort)) { $PostgresPort = '5432' }
 
-Write-Host "Caimmand PoC - Levantando PostgreSQL" -ForegroundColor Cyan
+Write-Host "Caimmand - Levantando PostgreSQL" -ForegroundColor Cyan
 Write-Host "  Contenedor  : $ContainerName"
 Write-Host "  Usuario     : $PostgresUser"
 Write-Host "  Base        : $PostgresDb"

@@ -419,8 +419,10 @@ El ciclo de vida del Caso describe los estados por los que un Caso puede transit
 ### Notas
 
 - No existen transiciones desde los estados terminales `Finalizado` ni `Cancelado`.
-- Toda transicion genera un Evento en la Timeline del Caso. En el PoC (sin entidad Audit) la Timeline tambien cubre la trazabilidad tecnica; el Registro de Auditoria (entidad Audit) se incorpora en la Iteracion B, momento en que cada transicion generara ademas un Registro de Auditoria asociado al Caso.
+- Toda transicion genera un Evento en la Timeline del Caso. Adicionalmente (Iteracion B — IMPLEMENTADA 2026-08-11), toda mutacion relevante genera un `AuditRecord` asociado al Caso con `Operation`, `Origin`, `OccurredAt`, `ChangeJson` y `ContextRef`. La Timeline sigue siendo la vista funcional visible al operador; el Audit es la trazabilidad tecnica inmutable (acceso `Gerente` via `GET /api/cases/{id}/audit`).
 - Las transiciones estan sujetas a las reglas de gobierno definidas en Caimmand, no a la logica de los workflows externos.
+- Las transiciones respetan ademas el set `AllowedStatuses` de la `CaseDefinition` (JSONB, vacio = hereda el global). La validacion la hace `UpdateCaseStatusHandler` via `CaseStatusTransitions.IsValid(from, to, allowed)`. Transiciones validas globalmente pero fuera del set de la definicion lanzan `InvalidStatusTransitionException`.
+- Las transiciones a `Suspendido` o `Cancelado` requieren rol `Supervisor` o `Gerente`; a `Finalizado` requiere `Supervisor`/`Gerente`/`Api`. El check se hace en el handler via `IAuthorizationContext.IsInRole(...)`.
 - Este conjunto base es una propuesta para el MVP. Estados adicionales (por ejemplo, `En revision`, `Escalado`) podran incorporarse en futuras iteraciones.
 
 ## Command API
@@ -456,9 +458,11 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 | Finalizar Caso           | Marca el Caso como completado.                     | Supervisor / Sistema          |
 | Consultar Caso           | Devuelve el estado y contexto de un Caso.         | Operador / Supervisor / Gerente / Automatizacion |
 
-> **Implementacion en el PoC**: Suspender, Reactivar, Cancelar, Finalizar y Cambiar estado se unifican en un unico endpoint `PATCH /api/cases/{id}/status` con `NewStatus`, validado contra `Domain/Enums/CaseStatusTransitions.cs`. Registrar Caso se materializa como `POST /api/cases` y Consultar Caso como `GET /api/cases/{id}`.
+> **Implementacion en el PoC**: Suspender, Reactivar, Cancelar, Finalizar y Cambiar estado se unifican en un unico endpoint `PATCH /api/cases/{id}/status` con `NewStatus`, validado contra `Domain/Enums/CaseStatusTransitions.cs` (y contra `AllowedStatuses` de la CaseDefinition — Iteracion B, 2026-08-11). Registrar Caso se materializa como `POST /api/cases` y Consultar Caso como `GET /api/cases/{id}`. Ademas, el handler aplica autorizacion por rol (Iteracion B): `Suspendido`/`Cancelado` requieren `Supervisor`/`Gerente`; `Finalizado` requiere `Supervisor`/`Gerente`/`Api`.
 
 #### Comandos sobre Tareas
+
+> **Iteracion B — IMPLEMENTADA 2026-08-11**: los comandos sobre Tareas estan expuestos como `POST /api/cases/{id}/tasks` (Create), `GET /api/cases/{id}/tasks[/{tid}]` (Consultar), y los `PATCH /api/cases/{id}/tasks/{tid}/{assign,start,complete,cancel}`. La autorizacion por rol se detalla en `ADR-002-Settings-Based-Auth.md`.
 
 | Comando                  | Descripcion                                          | Origen permitido              |
 |--------------------------|-----------------------------------------------------|-------------------------------|
@@ -478,6 +482,8 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 
 #### Comandos de Participantes
 
+> **Iteracion B — IMPLEMENTADA 2026-08-11**: los comandos de Participantes estan expuestos como `POST /api/cases/{id}/participants` (Registrar) y `GET /api/cases/{id}/participants` (Consultar). El join `CaseParticipants` materializa la relacion muchos-a-muchos con el `Rol` que cumple el participante en ese caso concreto.
+
 | Comando                  | Descripcion                                          | Origen permitido              |
 |--------------------------|-----------------------------------------------------|-------------------------------|
 | Registrar Participante    | Anade un Participante a un Caso.                    | Caimmand / Sistema de Origen  |
@@ -493,7 +499,7 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 | Desactivar Case Definition | Marca una definicion como inactiva.                  | Gerente                       |
 | Consultar Case Definitions | Devuelve las definiciones registradas, filtrables por estado o categoria. | Operador / Supervisor / Gerente / Automatizacion |
 
-> **Implementacion en el PoC**: solo se exponen `POST /api/case-definitions` (Registrar) y `GET /api/case-definitions` (Consultar). Actualizar, Activar y Desactivar (incluida la activacion/inactivacion via `IsActive`) llegan en la Iteracion B; hoy una Case Definition nace con `IsActive = true`.
+> **Implementacion en el PoC**: solo se exponen `POST /api/case-definitions` (Registrar) y `GET /api/case-definitions` (Consultar). Iteracion B — IMPLEMENTADA 2026-08-11: se agregaron `PATCH /api/case-definitions/{id}` (Actualizar) y `PATCH /api/case-definitions/{id}/active` (Activar/Desactivar via body `{isActive}`), ambos restringidos a rol `Gerente` (policy `RequireGerente`). El comando `PATCH /api/case-definitions/{id}` acepta `AllowedStatuses` (lista de `CaseStatus`; vacio = global).
 
 #### Comandos de intervencion
 
@@ -501,6 +507,10 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 |--------------------------|-----------------------------------------------------|-------------------------------|
 | Intervenir en Caso       | Registra una accion manual sobre un Caso.          | Supervisor / Gerente          |
 | Escalar Caso              | Eleva la prioridad o visibilidad de un Caso.       | Supervisor / Gerente          |
+
+#### Comandos de Auditoria
+
+> **Iteracion B — IMPLEMENTADA 2026-08-11**: la Command API expone `GET /api/cases/{id}/audit` (Consultar Audit), restringido a rol `Gerente`. Cualquier mutacion de estado (Case / Task / CaseDefinition / Participant / TimelineEvent) genera un `AuditRecord` via `IAuditRecorder.RecordAsync(...)` con `Operation`, `Origin`, `OccurredAt`, `ChangeJson` y `ContextRef`.
 
 ### Notas
 

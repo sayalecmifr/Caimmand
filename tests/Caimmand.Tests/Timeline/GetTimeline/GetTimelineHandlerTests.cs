@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Caimmand.Application.Timeline.GetTimeline;
 using Caimmand.Domain.Entities;
+using Task = System.Threading.Tasks.Task;
 using Caimmand.Domain.Enums;
 using Caimmand.Tests.Infrastructure;
 

@@ -7,6 +7,7 @@ public class TimelineEvent
     public long Sequence { get; set; }
     public string Type { get; set; } = string.Empty;
     public string Origin { get; set; } = string.Empty;
+    public Guid? ParticipantId { get; set; }
     public string Content { get; set; } = string.Empty;
     public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
 }

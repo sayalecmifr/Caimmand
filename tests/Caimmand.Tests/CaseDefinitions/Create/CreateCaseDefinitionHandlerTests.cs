@@ -1,15 +1,18 @@
+using Caimmand.Application.Authorization;
 using Caimmand.Application.CaseDefinitions.Create;
 using Caimmand.Domain.Entities;
+using Caimmand.Domain.Enums;
 using Caimmand.Tests.Infrastructure;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Task = System.Threading.Tasks.Task;
 
 namespace Caimmand.Tests.CaseDefinitions.Create;
 
 public class CreateCaseDefinitionHandlerTests
 {
-    private static CreateCaseDefinitionHandler BuildHandler(TestDbContext db) =>
-        new(db, new CreateCaseDefinitionValidator());
+    private static CreateCaseDefinitionHandler BuildHandler(TestDbContext db, IAuthorizationContext? auth = null) =>
+        new(db, new CreateCaseDefinitionValidator(), auth ?? TestAuthorizationContext.AsGerente());
 
     private static CreateCaseDefinitionCommand Command(
         string code = "APPOINTMENT_REMINDER",
@@ -18,8 +21,9 @@ public class CreateCaseDefinitionHandlerTests
         string? category = "Appointments",
         string priority = "Media",
         string color = "#3b82f6",
-        string icon = "calendar") =>
-        new(code, name, description, category, priority, color, icon);
+        string icon = "calendar",
+        List<CaseStatus>? allowedStatuses = null) =>
+        new(code, name, description, category, priority, color, icon, allowedStatuses);
 
     [Fact]
     public async Task Create_Succeeds_PersistsActiveDefinition()
@@ -83,7 +87,7 @@ public class CreateCaseDefinitionHandlerTests
         Assert.Contains(ex.Errors, e => e.PropertyName == nameof(CreateCaseDefinitionCommand.Code));
     }
 
-    [Fact]
+[Fact]
     public async Task Create_EmptyName_ThrowsValidation()
     {
         using var db = TestDbContext.Create();
@@ -93,4 +97,60 @@ public class CreateCaseDefinitionHandlerTests
 
         Assert.Contains(ex.Errors, e => e.PropertyName == nameof(CreateCaseDefinitionCommand.Name));
     }
+
+    [Fact]
+    public async Task Create_AsOperador_ThrowsUnauthorized()
+    {
+        using var db = TestDbContext.Create();
+        var handler = BuildHandler(db, TestAuthorizationContext.AsOperador());
+
+        await Assert.ThrowsAsync<UnauthorizedOperationException>(() => handler.Handle(Command(), default));
+    }
+
+    [Fact]
+    public async Task Create_AsSupervisor_ThrowsUnauthorized()
+    {
+        using var db = TestDbContext.Create();
+        var handler = BuildHandler(db, TestAuthorizationContext.AsSupervisor());
+
+        await Assert.ThrowsAsync<UnauthorizedOperationException>(() => handler.Handle(Command(), default));
+    }
+
+    [Fact]
+    public async Task Create_AsGerente_Succeeds()
+    {
+        using var db = TestDbContext.Create();
+        var handler = BuildHandler(db, TestAuthorizationContext.AsGerente());
+
+        var response = await handler.Handle(Command(), default);
+
+        Assert.NotEqual(Guid.Empty, response.Id);
+    }
+
+    [Fact]
+    public async Task Create_WithAllowedStatuses_PersistsThem()
+    {
+        using var db = TestDbContext.Create();
+        var handler = BuildHandler(db);
+
+        var allowed = new List<CaseStatus> { CaseStatus.Creado, CaseStatus.EnCurso, CaseStatus.Finalizado };
+        await handler.Handle(Command(allowedStatuses: allowed), default);
+
+        var entity = await db.CaseDefinitions.SingleAsync();
+        Assert.Equal(3, entity.AllowedStatuses.Count);
+        Assert.Contains(CaseStatus.Finalizado, entity.AllowedStatuses);
+    }
+
+    [Fact]
+    public async Task Create_WithoutAllowedStatuses_PersistsEmptyList()
+    {
+        using var db = TestDbContext.Create();
+        var handler = BuildHandler(db);
+
+        await handler.Handle(Command(), default);
+
+        var entity = await db.CaseDefinitions.SingleAsync();
+        Assert.Empty(entity.AllowedStatuses);
+    }
 }
+

@@ -1,10 +1,24 @@
+using Caimmand.Application.Authorization;
 using Caimmand.Application.CaseDefinitions.Create;
 using Caimmand.Application.CaseDefinitions.List;
+using Caimmand.Application.CaseDefinitions.SetActive;
+using Caimmand.Application.CaseDefinitions.Update;
 using Caimmand.Application.Cases.Create;
 using Caimmand.Application.Cases.GetDetail;
 using Caimmand.Application.Cases.List;
 using Caimmand.Application.Cases.UpdateStatus;
 using Caimmand.Application.Dashboard.GetDashboardKpis;
+using Caimmand.Application.Audit;
+using Caimmand.Application.Audit.GetAudit;
+using Caimmand.Application.Participants.List;
+using Caimmand.Application.Participants.Register;
+using Caimmand.Application.Tasks.Assign;
+using Caimmand.Application.Tasks.Cancel;
+using Caimmand.Application.Tasks.Complete;
+using Caimmand.Application.Tasks.Create;
+using Caimmand.Application.Tasks.GetDetail;
+using Caimmand.Application.Tasks.List;
+using Caimmand.Application.Tasks.Start;
 using Caimmand.Application.Timeline.AddEvent;
 using Caimmand.Application.Timeline.GetTimeline;
 using Caimmand.Domain;
@@ -21,7 +35,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
+using Task = System.Threading.Tasks.Task;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -29,7 +45,7 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Arrancando Caimmand PoC");
+    Log.Information("Arrancando Caimmand");
 
     var builder = WebApplication.CreateBuilder(args);
 
@@ -74,12 +90,26 @@ try
             .AddAuthenticationSchemes(
                 CookieAuthenticationDefaults.AuthenticationScheme,
                 ApiKeyAuthHandler.SchemeName));
+
+        options.AddPolicy("RequireGerente", policy => policy
+            .RequireAuthenticatedUser()
+            .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme)
+            .RequireClaim(ClaimTypes.Role, "Gerente"));
+
+        options.AddPolicy("RequireSupervisorGerente", policy => policy
+            .RequireAuthenticatedUser()
+            .AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme)
+            .RequireClaim(ClaimTypes.Role, "Supervisor", "Gerente"));
     });
 
     builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<IAuthorizationContext, Caimmand.Web.Authorization.HttpAuthorizationContext>();
 
     builder.Services.AddValidatorsFromAssemblyContaining<Caimmand.Application.Marker>();
+    builder.Services.AddScoped<IAuditRecorder, AuditRecorder>();
     builder.Services.AddScoped<CreateCaseDefinitionHandler>();
+    builder.Services.AddScoped<UpdateCaseDefinitionHandler>();
+    builder.Services.AddScoped<SetActiveCaseDefinitionHandler>();
     builder.Services.AddScoped<ListCaseDefinitionsHandler>();
     builder.Services.AddScoped<CreateCaseHandler>();
     builder.Services.AddScoped<ListCasesHandler>();
@@ -88,6 +118,16 @@ try
     builder.Services.AddScoped<UpdateCaseStatusHandler>();
     builder.Services.AddScoped<AddTimelineEventHandler>();
     builder.Services.AddScoped<GetTimelineHandler>();
+    builder.Services.AddScoped<RegisterParticipantHandler>();
+    builder.Services.AddScoped<ListParticipantsHandler>();
+    builder.Services.AddScoped<GetAuditHandler>();
+    builder.Services.AddScoped<CreateTaskHandler>();
+    builder.Services.AddScoped<AssignTaskHandler>();
+    builder.Services.AddScoped<StartTaskHandler>();
+    builder.Services.AddScoped<CompleteTaskHandler>();
+    builder.Services.AddScoped<CancelTaskHandler>();
+    builder.Services.AddScoped<ListTasksHandler>();
+    builder.Services.AddScoped<GetTaskHandler>();
 
     var app = builder.Build();
 
@@ -246,6 +286,189 @@ try
         }
     })
     .WithName("CreateCaseDefinition")
+    .RequireAuthorization("RequireGerente");
+
+    app.MapPatch("/api/case-definitions/{id:guid}", async (Guid id, UpdateCaseDefinitionCommand body, UpdateCaseDefinitionHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new UpdateCaseDefinitionCommand(
+                id, body.Name, body.Description, body.Category, body.DefaultPriority, body.DisplayColor, body.DisplayIcon, body.AllowedStatuses), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("UpdateCaseDefinition")
+    .RequireAuthorization("RequireGerente");
+
+    app.MapPatch("/api/case-definitions/{id:guid}/active", async (Guid id, SetActiveCaseDefinitionCommand body, SetActiveCaseDefinitionHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new SetActiveCaseDefinitionCommand(id, body.IsActive), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("SetActiveCaseDefinition")
+    .RequireAuthorization("RequireGerente");
+
+    app.MapPost("/api/cases/{id:guid}/participants", async (Guid id, RegisterParticipantCommand body, RegisterParticipantHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new RegisterParticipantCommand(
+                id, body.Type, body.Reference, body.ExternalId, body.Rol), ct);
+            return Results.Created($"/api/cases/{id}/participants/{response.ParticipantId}", response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("RegisterParticipant")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapGet("/api/cases/{id:guid}/participants", async (Guid id, ListParticipantsHandler handler, CancellationToken ct) =>
+    {
+        var result = await handler.Handle(new ListParticipantsQuery(id), ct);
+        return Results.Ok(result);
+    })
+    .WithName("ListParticipants")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapGet("/api/cases/{id:guid}/audit", async (Guid id, GetAuditHandler handler, CancellationToken ct) =>
+    {
+        var result = await handler.Handle(new GetAuditQuery(id), ct);
+        return Results.Ok(result);
+    })
+    .WithName("GetAudit")
+    .RequireAuthorization("RequireGerente");
+
+    app.MapPost("/api/cases/{id:guid}/tasks", async (Guid id, CreateTaskCommand body, CreateTaskHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new CreateTaskCommand(id, body.Type, body.AssigneeId, body.DueAt), ct);
+            return Results.Created($"/api/cases/{id}/tasks/{response.Id}", response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("CreateTask")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapGet("/api/cases/{id:guid}/tasks", async (Guid id, string? status, Guid? assigneeId, ListTasksHandler handler, CancellationToken ct) =>
+    {
+        Caimmand.Domain.Enums.TaskStatus? parsedStatus = null;
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<Caimmand.Domain.Enums.TaskStatus>(status, ignoreCase: true, out var s))
+        {
+            parsedStatus = s;
+        }
+        var result = await handler.Handle(new ListTasksQuery(id, parsedStatus, assigneeId), ct);
+        return Results.Ok(result);
+    })
+    .WithName("ListTasks")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapGet("/api/cases/{id:guid}/tasks/{taskId:guid}", async (Guid id, Guid taskId, GetTaskHandler handler, CancellationToken ct) =>
+    {
+        var detail = await handler.Handle(new GetTaskQuery(id, taskId), ct);
+        return detail is null ? Results.NotFound() : Results.Ok(detail);
+    })
+    .WithName("GetTask")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapPatch("/api/cases/{id:guid}/tasks/{taskId:guid}/assign", async (Guid id, Guid taskId, AssignTaskCommand body, AssignTaskHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new AssignTaskCommand(id, taskId, body.AssigneeId), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("AssignTask")
+    .RequireAuthorization("RequireSupervisorGerente");
+
+    app.MapPatch("/api/cases/{id:guid}/tasks/{taskId:guid}/start", async (Guid id, Guid taskId, StartTaskHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new StartTaskCommand(id, taskId), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("StartTask")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapPatch("/api/cases/{id:guid}/tasks/{taskId:guid}/complete", async (Guid id, Guid taskId, CompleteTaskCommand body, CompleteTaskHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new CompleteTaskCommand(id, taskId, body.Result), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("CompleteTask")
+    .RequireAuthorization("ApiAuth");
+
+    app.MapPatch("/api/cases/{id:guid}/tasks/{taskId:guid}/cancel", async (Guid id, Guid taskId, CancelTaskHandler handler, CancellationToken ct) =>
+    {
+        try
+        {
+            var response = await handler.Handle(new CancelTaskCommand(id, taskId), ct);
+            return Results.Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            var err = ex.Errors
+                .GroupBy(f => f.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(f => f.ErrorMessage).ToArray());
+            return Results.ValidationProblem(err);
+        }
+    })
+    .WithName("CancelTask")
     .RequireAuthorization("ApiAuth");
 
     app.Run();
@@ -269,7 +492,8 @@ try
             IsActive = true,
             DefaultPriority = "Media",
             DisplayColor = "#3b82f6",
-            DisplayIcon = "calendar"
+            DisplayIcon = "calendar",
+            AllowedStatuses = new List<CaseStatus> { CaseStatus.Creado, CaseStatus.EnCurso, CaseStatus.Finalizado, CaseStatus.Cancelado }
         });
 
         await db.SaveChangesAsync();
@@ -286,7 +510,7 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "Caimmand PoC termino por una excepcion no controlada");
+    Log.Fatal(ex, "Caimmand termino por una excepcion no controlada");
 }
 finally
 {

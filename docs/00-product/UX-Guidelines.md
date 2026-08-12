@@ -176,7 +176,7 @@ El Dashboard es la pantalla de inicio. El operador llega y, sin hacer nada, comp
                                                               enfasis visual
 
 +---------------------------------------------------------------+
-|  Caimmand PoC · v0.1                                          |
+|  Caimmand · v0.1                                              |
 |  Caimmand no ejecuta el negocio; hace visible, gobernable y   |
 |  operable su ejecucion.                                       |
 +---------------------------------------------------------------+

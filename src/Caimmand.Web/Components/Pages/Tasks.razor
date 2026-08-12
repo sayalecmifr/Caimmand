@@ -1,0 +1,168 @@
+@page "/tasks"
+@using Caimmand.Application.Tasks.List
+@using Caimmand.Domain.Enums
+@using TaskStatus = Caimmand.Domain.Enums.TaskStatus
+@inject ListTasksHandler ListHandler
+@inject NavigationManager Nav
+
+<PageTitle>Caimmand · Tareas</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="mb-4">
+        <h1 class="display-6 fw-semibold mb-0">Tareas</h1>
+        <p class="text-muted mb-0">Tareas pendientes y en progreso gobernadas por Caimmand.</p>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1">CaseId</label>
+                    <input class="form-control" @bind="FilterCaseId" placeholder="Guid del caso (opcional)" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-1">Estado</label>
+                    <select class="form-select" @bind="SelectedStatus" @bind:event="onchange" @bind:after="OnFilterChanged">
+                        <option value="">Todos</option>
+                        @foreach (var s in Enum.GetValues<TaskStatus>())
+                        {
+                            <option value="@s">@StatusLabel(s)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-secondary w-100" @onclick="ClearFilters">
+                        Limpiar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (ErrorMessage is not null)
+    {
+        <div class="alert alert-warning" role="alert">@ErrorMessage</div>
+    }
+
+    @if (Items is null)
+    {
+        <div class="text-center py-5 text-muted">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Cargando...
+        </div>
+    }
+    else if (Items.Count == 0)
+    {
+        <div class="alert alert-info" role="alert">
+            No hay tareas para mostrar. Ingresa un CaseId para ver las tareas de un caso concreto.
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Tipo</th>
+                            <th scope="col">Caso</th>
+                            <th scope="col">Estado</th>
+                            <th scope="col">Vence</th>
+                            <th scope="col">Creada</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Items)
+                        {
+                            <tr role="button" tabindex="0" style="cursor: pointer;"
+                               @onclick="() => Open(item.CaseId)"
+                               @onkeypress="() => Open(item.CaseId)">
+                                <td class="fw-semibold">@item.Type</td>
+                                <td><code class="text-body small">@item.CaseId</code></td>
+                                <td><span class="@StatusBadgeClass(item.Status)">@StatusLabel(item.Status)</span></td>
+                                <td class="@(IsOverdue(item) ? "text-danger fw-semibold" : "text-muted")">
+                                    @(item.DueAt.HasValue ? item.DueAt.Value.ToLocalTime().ToString("g") : "-")
+                                </td>
+                                <td class="text-muted">@item.CreatedAt.ToLocalTime().ToString("g")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="mt-3 text-muted small">
+            @Items.Count tarea(s) encontrada(s).
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<TaskItem>? Items;
+    private string? FilterCaseId;
+    private TaskStatus? SelectedStatus;
+    private string? ErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task OnFilterChanged()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        ErrorMessage = null;
+        if (string.IsNullOrWhiteSpace(FilterCaseId))
+        {
+            Items = new List<TaskItem>();
+            return;
+        }
+
+        if (!Guid.TryParse(FilterCaseId, out var caseId))
+        {
+            ErrorMessage = "CaseId inválido. Debe ser un Guid válido.";
+            Items = new List<TaskItem>();
+            return;
+        }
+
+        Items = await ListHandler.Handle(new ListTasksQuery(caseId, SelectedStatus), default);
+    }
+
+    private async Task ClearFilters()
+    {
+        FilterCaseId = null;
+        SelectedStatus = null;
+        await LoadAsync();
+    }
+
+    private void Open(Guid caseId) => Nav.NavigateTo($"/cases/{caseId}");
+
+    private static bool IsOverdue(TaskItem t) =>
+        t.DueAt.HasValue && t.DueAt.Value < DateTime.UtcNow &&
+        t.Status != nameof(TaskStatus.Completada) &&
+        t.Status != nameof(TaskStatus.Cancelada);
+
+    private static string StatusLabel(string s) => s switch
+    {
+        "Pendiente" => "Pendiente",
+        "EnProgreso" => "En progreso",
+        "Completada" => "Completada",
+        "Cancelada" => "Cancelada",
+        _ => s
+    };
+
+    private static string StatusLabel(TaskStatus s) => StatusLabel(s.ToString());
+
+    private static string StatusBadgeClass(string s) => s switch
+    {
+        "Pendiente" => "badge bg-secondary",
+        "EnProgreso" => "badge bg-info text-dark",
+        "Completada" => "badge bg-success",
+        "Cancelada" => "badge bg-danger",
+        _ => "badge bg-secondary"
+    };
+}
