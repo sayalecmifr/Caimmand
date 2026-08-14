@@ -220,7 +220,7 @@ El MVP se concentra deliberadamente en la gestion, trazabilidad y gobernanza del
 
 ## Roles y permisos MVP
 
-> **Iteracion B (autorizacion por rol) — IMPLEMENTADA 2026-08-11**: las restricciones por rol estan activas. Los endpoints de Case Definitions (Create/Update/SetActive) y Audit (Get) requieren rol `Gerente`. La transicion a `Suspendido`/`Cancelado` requiere `Supervisor`/`Gerente` (handler). `Tasks/assign` requiere `Supervisor`/`Gerente`; `Tasks/start`/`complete` requieren `Operador`/`Supervisor`/`Api`; `Tasks/cancel` requiere `Operador`/`Supervisor`. Ver `ADR-002-Settings-Based-Auth.md` para el detalle del mapeo operacion → rol permitido.
+> **Iteracion B (autorizacion por rol) — IMPLEMENTADA 2026-08-11**: las restricciones por rol estan activas. Los endpoints de Case Definitions (Create/Update/SetActive) y Audit (Get) requieren rol `Gerente`. La transicion a `Suspendido`/`Cancelado` requiere `Supervisor`/`Gerente`/`Api` (handler) — `Api` añadido en Iteracion B.6 (2026-08-14) para permitir que n8n suspenda/cancele directamente, rescindiendo el oversight humano previo. `Tasks/assign` requiere `Supervisor`/`Gerente`; `Tasks/start`/`complete` requieren `Operador`/`Supervisor`/`Api`; `Tasks/cancel` requiere `Operador`/`Supervisor`. Ver `ADR-002-Settings-Based-Auth.md` para el detalle del mapeo operacion → rol permitido.
 
 El MVP define tres roles operativos. El rol describe la funcion dentro del producto; el permiso describe que capacidades estan habilitadas para cada rol.
 

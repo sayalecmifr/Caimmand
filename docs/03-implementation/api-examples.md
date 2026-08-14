@@ -438,7 +438,7 @@ Referencia del flujo completo que un sistema externo (HIS + n8n) ejecuta contra 
 4. **n8n** (opcional) programa un reenvio y reporta `Type = Recordatorio` con su `Content`.
 5. Si el paciente responde (webhook de WhatsApp/SMS gateway), **n8n** reporta `Type = Confirmacion` o `Type = Cancelacion` via timeline.
 6. El **operador** abre el detalle del caso en Blazor (`/cases/{id}`) y ve toda la timeline. Puede agregar manualmente eventos (`Type = Llamado`, `Type = Comentario`) desde la UI si intervino por telefono u otra va.
-7. El caso avanza de estado: `Creado → EnCurso` (al primer evento n8n que arranca operacion; en el PoC se hace manual o desde UI), y finalmente `→ Finalizado` o `→ Cancelado` por el operador, lo cual siembra eventos tipados `Finalizacion` / `Cancelacion`.
+7. El caso avanza de estado: `Creado → EnCurso` (al primer evento n8n que arranca operacion; en el PoC se hace manual o desde UI), y finalmente `→ Finalizado` o `→ Cancelado` por el operador o por n8n (rol `Api` autorizado para ambas transiciones desde Iteracion B.6, 2026-08-14), lo cual siembra eventos tipados `Finalizacion` / `Cancelacion`.
 
 > Nota: Iteracion B — IMPLEMENTADA 2026-08-11. Las "tareas" (`Enviar SMS`, `Esperar confirmacion`) ahora son entidades estructuradas (`Task`) con su propio estado (`Pendiente` / `EnProgreso` / `Completada` / `Cancelada`) y `Result` al cerrarse. Los KPIs de "tareas vencidas" estan activos en el Dashboard (`TasksOverdue`). Ver seccion "7. Tasks" abajo.
 
@@ -496,7 +496,7 @@ Referencia operativa para configurar los workflows de n8n contra la Command API 
 ### 6.1 Principios
 
 - **`sourceSystem` ≠ `Origin`**: el HIS es el sistema de origen del caso (`sourceSystem: "HIS"`); n8n es el transporte/orquestador y firma como `Origin: "n8n"` en los eventos de timeline que reporta.
-- **Operator oversight**: n8n nunca mueve un caso a `Cancelado`. n8n si finaliza (`Finalizado`) cuando el paciente confirma explicitamente.
+- **Operator oversight (revisado B.6, 2026-08-14)**: n8n puede mover un caso a `Suspendido`, `Cancelado` y `Finalizado` cuando corresponde (rol `Api` autorizado para las tres transiciones terminales/suspension). Antes de B.6 las cancelaciones requerian validacion manual del operador; esa restriccion se rescindio para permitir que n8n cierre el ciclo autonomamente cuando el paciente cancela.
 - **Auth API**: todo HTTP Request Node de n8n debe llevar el header `X-API-Key: caimmand-poc-key` (o el valor definido en `.env` → `AUTH_API_KEY`). Sin ese header, todos los endpoints `/api/...` devuelven `401 Unauthorized`. Ver ADR-002.
 - **Idempotencia convencional**: `Context.externalId` es la **clave Caimmand-side** para idempotencia. n8n mapea el id que el HIS le dé (turnoId, appointmentId, codigo de turno, etc.) a esa clave al crear el caso. Si el HIS no provee id estable, skip idempotencia: POST directo y aceptar duplicados en re-runs (ver 6.6).
 - **Toda accion relevante genera TimelineEvent**: envio, reenvio, confirmacion, error. Si hiciste algo, postealo.
@@ -510,7 +510,7 @@ Referencia operativa para configurar los workflows de n8n contra la Command API 
 | `EnCurso → Suspendido` | n8n (Workflow 2) | Falla del proveedor SMS o timeout sin respuesta |
 | `Suspendido → EnCurso` | Operador | Tras resolver el problema manualmente |
 | `EnCurso → Finalizado` | n8n (Workflow 3) | Paciente confirma via webhook |
-| `EnCurso → Cancelado` | Operador | Paciente cancela (n8n solo reporta `Cancelacion` en timeline) |
+| `EnCurso → Cancelado` | Operador o n8n | Paciente cancela (n8n puede cancelar directamente o solo reportar `Cancelacion` en timeline segun el flujo) |
 
 > La transicion `Creado → Cancelado` esta pendiente de revision con el equipo; no se usa en este flujo.
 
@@ -716,7 +716,7 @@ El caso pasa a `Suspendido` y aparece en la tarjeta "Requieren Intervencion" del
 
 ### 6.5 Workflow 3: Respuesta paciente (webhook)
 
-Recibe la respuesta del paciente via el gateway SMS/WhatsApp y registra el evento. Si confirma, finaliza el caso. Si cancela, solo reporta — el operador valida antes de cerrar.
+Recibe la respuesta del paciente via el gateway SMS/WhatsApp y registra el evento. Si confirma, finaliza el caso. Si cancela, n8n puede cancelar el caso directamente (rol `Api` autorizado desde Iteracion B.6, 2026-08-14) o solo reportar el evento `Cancelacion` y dejar que el operador valide antes de cerrar, segun el flujo acordado con el equipo.
 
 ```
 +-----------------------------------------------------------+
@@ -735,7 +735,7 @@ Recibe la respuesta del paciente via el gateway SMS/WhatsApp y registra el event
         |
         +-- Confirmacion --> [PATCH /status -> Finalizado]
         |
-        +-- Cancelacion ----> (no mueve estado; operador valida)
+        +-- Cancelacion ----> [PATCH /status -> Cancelado] (o solo reporta; operador valida)
 ```
 
 **Paso 1 — Parse respuesta**
@@ -778,7 +778,18 @@ n8n HTTP Request Node:
 { "newStatus": "Finalizado" }
 ```
 
-Si `responseType == "Cancelacion"`: no se mueve estado. El operador abre el caso en Blazor, lee el evento `Cancelacion` en la timeline, valida, y hace manualmente `EnCurso → Cancelado` desde la UI.
+Si `responseType == "Cancelacion"`: n8n puede mover el caso a `Cancelado` directamente (rol `Api` autorizado desde la Iteracion B.6, 2026-08-14), o solo reportar el evento `Cancelacion` en timeline y dejar que un operador valide antes de cerrar. La eleccion depende del flujo acordado con el equipo. Para cancelar directamente:
+
+n8n HTTP Request Node:
+- Method: `PATCH`
+- URL: `http://localhost:8080/api/cases/{{ $json.caseId }}/status`
+- Body:
+
+```json
+{ "newStatus": "Cancelado" }
+```
+
+Si se prefiere el flujo con oversight humano, n8n solo postea el evento `Cancelacion` en timeline (sin mover estado) y el operador abre el caso en Blazor, valida, y hace manualmente `EnCurso → Cancelado` desde la UI.
 
 ### 6.6 Idempotencia
 
@@ -820,7 +831,7 @@ Si se pierde el mapping, se puede reconstruir desde `GET /api/cases` filtrando c
 ### 6.9 Reglas de oro
 
 1. **n8n nunca usa `sourceSystem: "n8n"`**. El sistema de origen es el HIS; n8n firma `Origin` en timeline events.
-2. **n8n nunca mueve a `Cancelado` directamente**. Las cancelaciones quedan a validacion del operador (oversight del PDD).
+2. **n8n puede mover a `Cancelado` directamente** (rol `Api` autorizado desde Iteracion B.6, 2026-08-14). Antes esta transicion requeria oversight humano del operador; esa restriccion se rescindio. Alternativamente el flujo puede mantenerse con oversight reportando solo `Cancelacion` en timeline si el equipo lo prefiere.
 3. **n8n solo mueve a `Finalizado` tras `Confirmacion` explicita** del paciente via webhook.
 4. **Toda falla reportable genera TimelineEvent `Error` + `Suspendido`**. Asi el caso cae en "Requieren Intervencion" del Dashboard.
 5. **Content siempre legible y especifico**. Evitar "OK" o "fallo". Incluir proveedor, MSID, phone mascarado, texto de error crudo — el operador tiene que entender el caso en `<10s`.
@@ -1040,7 +1051,7 @@ El handler `UpdateCaseDefinitionHandler` no audit explicitamente en la Iteracion
 
 > Iteracion B — IMPLEMENTADA 2026-08-11. Detalle completo en `ADR-002-Settings-Based-Auth.md`.
 
-Para n8n, el header sigue siendo el unico requisito. Los endpoints que requieren rol especifico (Create/Update/SetActive CaseDefinition, Audit, Tasks/assign) estan disponibles, pero los que se catalogan como `Gerente` no pueden ser ejecutados desde n8n con el rol `Api` — eso es consciente: n8n no configura definiciones, ni asigna tasks, ni consulta audit. Para Tasks `start`/`complete` y Caso status `Finalizado`, n8n (rol `Api`) si esta autorizado ({to:"Finalizado"} requiere `Api` ademas de `Supervisor`/`Gerente`).
+Para n8n, el header sigue siendo el unico requisito. Los endpoints que requieren rol especifico (Create/Update/SetActive CaseDefinition, Audit, Tasks/assign) estan disponibles, pero los que se catalogan como `Gerente` no pueden ser ejecutados desde n8n con el rol `Api` — eso es consciente: n8n no configura definiciones, ni asigna tasks, ni consulta audit. Para Tasks `start`/`complete` y Caso status `Suspendido`/`Cancelado`/`Finalizado`, n8n (rol `Api`) si esta autorizado (Iteracion B.6, 2026-08-14 — `Api` añadido a `Suspendido`/`Cancelado`).
 
 | Endpoint / operacion | Roles permitidos para n8n (`Api`)                                            |
 |----------------------|--------------------------------------------------------------------------------|
@@ -1048,7 +1059,7 @@ Para n8n, el header sigue siendo el unico requisito. Los endpoints que requieren
 | `GET /api/cases[/{id}]`                           | SI     |
 | `PATCH /api/cases/{id}/status` (EnCurso)          | SI     |
 | `PATCH /api/cases/{id}/status` (Finalizado)        | SI     |
-| `PATCH /api/cases/{id}/status` (Suspendido/Cancelado) | NO  |
+| `PATCH /api/cases/{id}/status` (Suspendido/Cancelado) | SI  |
 | `POST /api/cases/{id}/timeline`                   | SI     |
 | `POST /api/cases/{id}/tasks`                      | SI     |
 | `GET /api/cases/{id}/tasks[/{tid}]`               | SI     |

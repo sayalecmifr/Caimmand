@@ -104,10 +104,10 @@ public sealed class UpdateCaseStatusHandler
     {
         if (newStatus == CaseStatus.Suspendido || newStatus == CaseStatus.Cancelado)
         {
-            if (!_authorization.IsInRole(Roles.Supervisor, Roles.Gerente))
+            if (!_authorization.IsInRole(Roles.Supervisor, Roles.Gerente, Roles.Api))
             {
                 throw new UnauthorizedOperationException(
-                    $"{Roles.Supervisor} o {Roles.Gerente}",
+                    $"{Roles.Supervisor}, {Roles.Gerente} o sistema externo ({Roles.Api})",
                     _authorization.GetCurrentRole() ?? "(ninguno)");
             }
         }

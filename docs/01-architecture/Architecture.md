@@ -422,7 +422,7 @@ El ciclo de vida del Caso describe los estados por los que un Caso puede transit
 - Toda transicion genera un Evento en la Timeline del Caso. Adicionalmente (Iteracion B — IMPLEMENTADA 2026-08-11), toda mutacion relevante genera un `AuditRecord` asociado al Caso con `Operation`, `Origin`, `OccurredAt`, `ChangeJson` y `ContextRef`. La Timeline sigue siendo la vista funcional visible al operador; el Audit es la trazabilidad tecnica inmutable (acceso `Gerente` via `GET /api/cases/{id}/audit`).
 - Las transiciones estan sujetas a las reglas de gobierno definidas en Caimmand, no a la logica de los workflows externos.
 - Las transiciones respetan ademas el set `AllowedStatuses` de la `CaseDefinition` (JSONB, vacio = hereda el global). La validacion la hace `UpdateCaseStatusHandler` via `CaseStatusTransitions.IsValid(from, to, allowed)`. Transiciones validas globalmente pero fuera del set de la definicion lanzan `InvalidStatusTransitionException`.
-- Las transiciones a `Suspendido` o `Cancelado` requieren rol `Supervisor` o `Gerente`; a `Finalizado` requiere `Supervisor`/`Gerente`/`Api`. El check se hace en el handler via `IAuthorizationContext.IsInRole(...)`.
+- Las transiciones a `Suspendido` o `Cancelado` requieren rol `Supervisor`, `Gerente` o `Api`; a `Finalizado` requiere `Supervisor`/`Gerente`/`Api`. El check se hace en el handler via `IAuthorizationContext.IsInRole(...)`.
 - Este conjunto base es una propuesta para el MVP. Estados adicionales (por ejemplo, `En revision`, `Escalado`) podran incorporarse en futuras iteraciones.
 
 ## Command API
@@ -458,7 +458,7 @@ El siguiente catalogo es una propuesta base para el MVP. Define los tipos de ope
 | Finalizar Caso           | Marca el Caso como completado.                     | Supervisor / Sistema          |
 | Consultar Caso           | Devuelve el estado y contexto de un Caso.         | Operador / Supervisor / Gerente / Automatizacion |
 
-> **Implementacion en el PoC**: Suspender, Reactivar, Cancelar, Finalizar y Cambiar estado se unifican en un unico endpoint `PATCH /api/cases/{id}/status` con `NewStatus`, validado contra `Domain/Enums/CaseStatusTransitions.cs` (y contra `AllowedStatuses` de la CaseDefinition — Iteracion B, 2026-08-11). Registrar Caso se materializa como `POST /api/cases` y Consultar Caso como `GET /api/cases/{id}`. Ademas, el handler aplica autorizacion por rol (Iteracion B): `Suspendido`/`Cancelado` requieren `Supervisor`/`Gerente`; `Finalizado` requiere `Supervisor`/`Gerente`/`Api`.
+> **Implementacion en el PoC**: Suspender, Reactivar, Cancelar, Finalizar y Cambiar estado se unifican en un unico endpoint `PATCH /api/cases/{id}/status` con `NewStatus`, validado contra `Domain/Enums/CaseStatusTransitions.cs` (y contra `AllowedStatuses` de la CaseDefinition — Iteracion B, 2026-08-11). Registrar Caso se materializa como `POST /api/cases` y Consultar Caso como `GET /api/cases/{id}`. Ademas, el handler aplica autorizacion por rol (Iteracion B): `Suspendido`/`Cancelado` requieren `Supervisor`/`Gerente`/`Api` (Iteracion B.6, 2026-08-14 — `Api` añadido para permitir que n8n suspenda/cancele directamente, rescindiendo el oversight humano previo); `Finalizado` requiere `Supervisor`/`Gerente`/`Api`.
 
 #### Comandos sobre Tareas
 

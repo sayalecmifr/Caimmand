@@ -174,6 +174,28 @@ public class UpdateCaseStatusHandlerTests
     }
 
     [Fact]
+    public async Task UpdateStatus_Suspendido_AsApi_Succeeds()
+    {
+        var (db, caseId, _) = await SeedCaseAsync(CaseStatus.EnCurso);
+        var handler = BuildHandler(db, new TestAuthorizationContext("Api"));
+
+        var response = await handler.Handle(new UpdateCaseStatusCommand(caseId, CaseStatus.Suspendido), default);
+
+        Assert.Equal(CaseStatus.Suspendido.ToString(), response.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_Cancelado_AsApi_Succeeds()
+    {
+        var (db, caseId, _) = await SeedCaseAsync(CaseStatus.EnCurso);
+        var handler = BuildHandler(db, new TestAuthorizationContext("Api"));
+
+        var response = await handler.Handle(new UpdateCaseStatusCommand(caseId, CaseStatus.Cancelado), default);
+
+        Assert.Equal(CaseStatus.Cancelado.ToString(), response.Status);
+    }
+
+    [Fact]
     public async Task UpdateStatus_Finalizado_AsGerente_Succeeds()
     {
         var (db, caseId, _) = await SeedCaseAsync(CaseStatus.EnCurso);

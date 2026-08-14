@@ -183,6 +183,16 @@ Tests: 129 casos en `tests/Caimmand.Tests/` (build limpio, 0 errores).
 
 Tests: 138 casos en `tests/Caimmand.Tests/` (build limpio, 0 errores).
 
+## Iteracion B.6 — registro historico
+
+> Implementada el 2026-08-14. Abre el rol `Api` para las transiciones de estado de Caso a `Suspendido`/`Cancelado` (antes solo `Supervisor`/`Gerente`), igualando el branch de `Finalizado`.
+
+- **`UpdateCaseStatusHandler.RequireRoleForTransition`**: el branch `Suspendido`/`Cancelado` ahora acepta `Roles.Api` ademas de `Supervisor`/`Gerente`; mensaje de error actualizado. El branch de `Finalizado` ya lo tenia. La UI Blazor (`CaseView.razor`) no se toca: `Api` solo existe para API key (cookie users son Operador/Supervisor/Gerente), asi que los botones de transicion siguen envueltos en `<AuthorizeView Roles="Supervisor,Gerente">`.
+- **Rescision de oversight humano**: esto rescinde el principio de "oversight humano en cancelacion" documentado previamente en `api-examples.md` (seccion 6) y el PDD. n8n (rol `Api`) ahora puede suspender y cancelar casos directamente. La maquina de estados (`CaseStatusTransitions`) NO se modifico: `Creado → Cancelado` sigue invalido por transicion (no por rol), y `Creado → Suspendido` tampoco existe. Tarea cancel (`Tasks/cancel`) sigue requiriendo `Operador`/`Supervisor` (sin `Api`) — el cambio aplica solo a estado de Caso.
+- **Docs actualizadas**: `ADR-002`, `Architecture.md`, `api-examples.md` (seccion 6: principios, distribucion de estados, workflow 3, reglas de oro, tabla de permisos n8n), `MVP.md`.
+
+Tests: 140 casos en `tests/Caimmand.Tests/` (+2: `Suspendido_AsApi_Succeeds`, `Cancelado_AsApi_Succeeds`) (build limpio, 0 errores).
+
 ## Inconsistencias encontradas
 
 > Las inconsistencias documentadas originalmente entre `docs/` y el código fueron resueltas el 2026-07-28 corrigiendo la documentación. Se conservan a continuación como registro histórico:

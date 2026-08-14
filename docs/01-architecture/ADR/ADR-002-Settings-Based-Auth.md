@@ -38,7 +38,7 @@ Este ADR documenta un esquema **interim**: cuker auth UI + API key por settings.
 5. **Roles con autorizacion fina (Iteracion B)**:
     - Se aplican restricciones por rol en endpoints y handlers (ver seccion "Autorizacion por rol" abajo).
     - Los claims `Role` se emiten para los 3 roles del PDD: `Operador` / `Supervisor` / `Gerente`.
-    - Adicionalmente, la auth API key emite el claim `Role = Api` para que los orquestadores externos (n8n) puedan operar tareas y transiciones permitidas (Finalizar Caso, Start/Complete Task) sin permisos de administracion.
+    - Adicionalmente, la auth API key emite el claim `Role = Api` para que los orquestadores externos (n8n) puedan operar tareas y transiciones permitidas (Suspender/Cancelar/Finalizar Caso, Start/Complete Task) sin permisos de administracion.
 
 ### Autorizacion por rol (Iteracion B)
 
@@ -49,7 +49,7 @@ Implementada en `Application/Authorization/IAuthorizationContext.cs` + `Web/Auth
 | `POST /api/cases`, `GET /api/cases[/{id}]` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
 | `POST /api/cases/{id}/timeline` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
 | `PATCH /api/cases/{id}/status` (a `EnCurso`) | Cualquiera autenticado | Handler (post-endpoint) |
-| `PATCH /api/cases/{id}/status` (a `Suspendido`/`Cancelado`) | `Supervisor` / `Gerente` | Handler (post-endpoint) |
+| `PATCH /api/cases/{id}/status` (a `Suspendido`/`Cancelado`) | `Supervisor` / `Gerente` / `Api` | Handler (post-endpoint) |
 | `PATCH /api/cases/{id}/status` (a `Finalizado`) | `Supervisor` / `Gerente` / `Api` | Handler (post-endpoint) |
 | `POST /api/cases/{id}/participants` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
 | `POST /api/cases/{id}/tasks`, `GET /api/cases/{id}/tasks[/{tid}]` | Cualquiera autenticado (UI + API) | Endpoint `ApiAuth` |
@@ -84,6 +84,7 @@ UI Blazor: `CaseView.razor` envuelve los botones de transicion de estado en `<Au
 ## Backlog explicito
 
 - **Iteracion B — autorizacion por rol (IMPLEMENTADA 2026-08-11)**: las policies `RequireGerente` y `RequireSupervisorGerente` y los checks `IAuthorizationContext.IsInRole(...)` en handlers estan activos. Originalmente pendiente en la Fase 4 del PoC; materializada junto con Tasks, Participants y Audit (ver `MVP.md` y `Architecture.md`).
+- **Iteracion B.6 — Api autorizado para Suspendido/Cancelado (IMPLEMENTADA 2026-08-14)**: se abre el rol `Api` tambien para las transiciones a `Suspendido`/`Cancelado` (antes solo `Supervisor`/`Gerente`). El handler `UpdateCaseStatusHandler.RequireRoleForTransition` ahora acepta `Api` en el branch de `Suspendido`/`Cancelado`, igualando el branch de `Finalizado`. Esto rescinde el principio de "oversight humano en cancelacion" documentado previamente en `api-examples.md` (seccion 6): n8n (rol `Api`) ahora puede suspender y cancelar casos directamente, sin validacion manual del operador. La maquina de estados (`CaseStatusTransitions`) sigue vigente y no se ve afectada (`Creado → Cancelado` sigue invalido por transicion, no por rol). Tests: +2 en `UpdateCaseStatusHandlerTests`.
 - **Iteracion futura (post-PoC)** — hashing de passwords en settings.
 - **Iteracion futura (post-PoC)** — API key por sistema externo + rotacion.
 - **Iteracion futura (post-PoC, fuera de ADR-002)** — migracion a Keycloak/IdentityServer: sustituye `AuthOptions` por esquema OIDC; ADR-003 cubrira ese cambio.
