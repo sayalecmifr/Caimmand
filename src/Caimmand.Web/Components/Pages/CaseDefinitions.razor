@@ -33,7 +33,7 @@
         <div class="card shadow-sm">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
+                    <thead>
                         <tr>
                             <th scope="col">Code</th>
                             <th scope="col">Nombre</th>
@@ -55,11 +55,11 @@
                                 <td>
                                     @if (def.IsActive)
                                     {
-                                        <span class="badge bg-success">Activa</span>
+                                        <span class="badge rounded-pill border bg-success-subtle text-success-emphasis border-success-subtle">Activa</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-secondary">Inactiva</span>
+                                        <span class="badge rounded-pill border bg-secondary-subtle text-secondary-emphasis border-secondary-subtle">Inactiva</span>
                                     }
                                 </td>
                                 <td class="text-muted small">
@@ -68,7 +68,7 @@
                                         <select class="form-select form-select-sm" @bind="EditingAllowedStatuses" multiple size="5">
                                             @foreach (var s in Enum.GetValues<CaseStatus>())
                                             {
-                                                <option value="@s">@StatusLabel(s)</option>
+                                                <option value="@s">@BadgeStatus.CaseLabel(s)</option>
                                             }
                                         </select>
                                         <div class="text-muted small">Ctrl/Cmd+click para seleccionar multiples. Vacio = todos.</div>
@@ -204,22 +204,12 @@
         }
     }
 
-    private static string StatusLabel(CaseStatus s) => s switch
-    {
-        CaseStatus.Creado => "Creado",
-        CaseStatus.EnCurso => "En curso",
-        CaseStatus.Suspendido => "Suspendido",
-        CaseStatus.Finalizado => "Finalizado",
-        CaseStatus.Cancelado => "Cancelado",
-        _ => s.ToString()
-    };
-
     private static string AllowedLabel(IReadOnlyCollection<CaseStatus>? allowed)
     {
         if (allowed is null || allowed.Count == 0)
         {
             return "Todos (global)";
         }
-        return string.Join(", ", allowed.Select(StatusLabel));
+        return string.Join(", ", allowed.Select(BadgeStatus.CaseLabel));
     }
 }

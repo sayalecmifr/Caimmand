@@ -56,7 +56,7 @@
                             <code>@Case.CaseDefinitionCode</code>
                         </div>
                     </div>
-                    <span class="@StatusBadgeClass(Case.Status) fs-6">@StatusLabel(Case.Status)</span>
+                    <span class="@BadgeStatus.CaseBadge(Case.Status) fs-6">@BadgeStatus.CaseLabel(Case.Status)</span>
                 </div>
                 <hr class="my-3" />
                 <div class="row g-3">
@@ -85,7 +85,7 @@
         <div class="card shadow-sm mb-4">
             <div class="card-body">
                 <h3 class="h6 fw-semibold mb-3">Contexto</h3>
-                <pre class="bg-light border p-3 rounded font-monospace small mb-0" style="white-space: pre-wrap;">@ContextPrettyJson</pre>
+                <pre class="bg-body-tertiary border p-3 rounded font-monospace small mb-0 pre-wrap">@ContextPrettyJson</pre>
             </div>
         </div>
 
@@ -100,7 +100,7 @@
                 {
                     <div class="table-responsive">
                         <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
+                            <thead>
                                 <tr>
                                     <th scope="col">Referencia</th>
                                     <th scope="col">Tipo</th>
@@ -113,7 +113,7 @@
                                 {
                                     <tr>
                                         <td class="fw-semibold">@p.Reference</td>
-                                        <td><span class="badge bg-secondary">@p.Type</span></td>
+                                        <td><span class="badge rounded-pill border bg-secondary-subtle text-secondary-emphasis border-secondary-subtle">@p.Type</span></td>
                                         <td>@p.Rol</td>
                                         <td class="text-muted small">@(@p.ExternalId ?? "-")</td>
                                     </tr>
@@ -136,7 +136,7 @@
                 {
                     <div class="table-responsive">
                         <table class="table table-sm align-middle mb-3">
-                            <thead class="table-light">
+                            <thead>
                                 <tr>
                                     <th scope="col">Tipo</th>
                                     <th scope="col">Estado</th>
@@ -150,7 +150,7 @@
                                 {
                                     <tr>
                                         <td class="fw-semibold">@t.Type</td>
-                                        <td><span class="@TaskStatusBadgeClass(t.Status)">@TaskStatusLabel(t.Status)</span></td>
+                                        <td><span class="@BadgeStatus.TaskBadge(t.Status)">@BadgeStatus.TaskLabel(t.Status)</span></td>
                                         <td class="@(IsTaskOverdue(t) ? "text-danger fw-semibold" : "text-muted")">
                                             @(t.DueAt.HasValue ? t.DueAt.Value.ToLocalTime().ToString("g") : "-")
                                         </td>
@@ -206,7 +206,7 @@
                                             @item.Origin
                                             @if (item.ParticipantId is not null && ParticipantRefs.TryGetValue(item.ParticipantId.Value, out var pref))
                                             {
-                                                <span class="badge bg-light text-dark border">@pref</span>
+                                                <span class="badge rounded-pill border bg-secondary-subtle text-secondary-emphasis border-secondary-subtle">@pref</span>
                                             }
                                         </div>
                                         <div>@item.Content</div>
@@ -262,7 +262,7 @@
                         }
                         @if (targets.Count == 0)
                         {
-                            <p class="text-muted mb-0">El caso se encuentra en estado terminal (@StatusLabel(Case.Status)).</p>
+                            <p class="text-muted mb-0">El caso se encuentra en estado terminal (@BadgeStatus.CaseLabel(Case.Status)).</p>
                         }
                         else
                         {
@@ -272,7 +272,7 @@
                                         @foreach (var target in targets)
                                         {
                                             <button class="btn btn-outline-primary btn-sm" @onclick="() => ChangeStatus(target)">
-                                                @StatusLabel(target)
+                                                @BadgeStatus.CaseLabel(target)
                                             </button>
                                         }
                                     </div>
@@ -453,42 +453,4 @@
         t.DueAt.HasValue && t.DueAt.Value < DateTime.UtcNow &&
         t.Status != nameof(TaskStatus.Completada) &&
         t.Status != nameof(TaskStatus.Cancelada);
-
-    private static string TaskStatusLabel(string s) => s switch
-    {
-        "Pendiente" => "Pendiente",
-        "EnProgreso" => "En progreso",
-        "Completada" => "Completada",
-        "Cancelada" => "Cancelada",
-        _ => s
-    };
-
-    private static string TaskStatusBadgeClass(string s) => s switch
-    {
-        "Pendiente" => "badge bg-secondary",
-        "EnProgreso" => "badge bg-info text-dark",
-        "Completada" => "badge bg-success",
-        "Cancelada" => "badge bg-danger",
-        _ => "badge bg-secondary"
-    };
-
-    private static string StatusLabel(CaseStatus s) => s switch
-    {
-        CaseStatus.Creado => "Creado",
-        CaseStatus.EnCurso => "En curso",
-        CaseStatus.Suspendido => "Suspendido",
-        CaseStatus.Finalizado => "Finalizado",
-        CaseStatus.Cancelado => "Cancelado",
-        _ => s.ToString()
-    };
-
-    private static string StatusBadgeClass(CaseStatus s) => s switch
-    {
-        CaseStatus.Creado => "badge bg-primary",
-        CaseStatus.EnCurso => "badge bg-info",
-        CaseStatus.Suspendido => "badge bg-warning text-dark",
-        CaseStatus.Finalizado => "badge bg-success",
-        CaseStatus.Cancelado => "badge bg-danger",
-        _ => "badge bg-secondary"
-    };
 }

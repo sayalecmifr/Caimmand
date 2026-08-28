@@ -26,7 +26,7 @@
                         <option value="">Todos</option>
                         @foreach (var s in Enum.GetValues<TaskStatus>())
                         {
-                            <option value="@s">@StatusLabel(s)</option>
+                            <option value="@s">@BadgeStatus.TaskLabel(s.ToString())</option>
                         }
                     </select>
                 </div>
@@ -62,7 +62,7 @@
         <div class="card shadow-sm">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
+                    <thead>
                         <tr>
                             <th scope="col">Tipo</th>
                             <th scope="col">Caso</th>
@@ -74,12 +74,12 @@
                     <tbody>
                         @foreach (var item in Items)
                         {
-                            <tr role="button" tabindex="0" style="cursor: pointer;"
+                            <tr role="button" tabindex="0"
                                @onclick="() => Open(item.CaseId)"
                                @onkeypress="() => Open(item.CaseId)">
                                 <td class="fw-semibold">@item.Type</td>
                                 <td><code class="text-body small">@item.CaseId</code></td>
-                                <td><span class="@StatusBadgeClass(item.Status)">@StatusLabel(item.Status)</span></td>
+                                <td><span class="@BadgeStatus.TaskBadge(item.Status)">@BadgeStatus.TaskLabel(item.Status)</span></td>
                                 <td class="@(IsOverdue(item) ? "text-danger fw-semibold" : "text-muted")">
                                     @(item.DueAt.HasValue ? item.DueAt.Value.ToLocalTime().ToString("g") : "-")
                                 </td>
@@ -145,24 +145,4 @@
         t.DueAt.HasValue && t.DueAt.Value < DateTime.UtcNow &&
         t.Status != nameof(TaskStatus.Completada) &&
         t.Status != nameof(TaskStatus.Cancelada);
-
-    private static string StatusLabel(string s) => s switch
-    {
-        "Pendiente" => "Pendiente",
-        "EnProgreso" => "En progreso",
-        "Completada" => "Completada",
-        "Cancelada" => "Cancelada",
-        _ => s
-    };
-
-    private static string StatusLabel(TaskStatus s) => StatusLabel(s.ToString());
-
-    private static string StatusBadgeClass(string s) => s switch
-    {
-        "Pendiente" => "badge bg-secondary",
-        "EnProgreso" => "badge bg-info text-dark",
-        "Completada" => "badge bg-success",
-        "Cancelada" => "badge bg-danger",
-        _ => "badge bg-secondary"
-    };
 }

@@ -1,0 +1,8 @@
+.login-wrapper {
+    min-height: 100vh;
+    background-color: var(--bs-tertiary-bg);
+}
+
+.login-card {
+    width: 24rem;
+}
